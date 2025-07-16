@@ -1,0 +1,26 @@
+# Test this package
+#
+# Currently we need to use the nightly snapshots, because we need a
+# special testing-only API from the Concurrency runtime.
+
+name: Test Windows
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test-windows:
+    runs-on: windows
+
+    steps:
+      - name: Install Swift nightly
+        run: scripts\install-nightly.ps1
+
+      - name: Build
+        run: swift build
+
+      - name: Test
+        run: swift test
