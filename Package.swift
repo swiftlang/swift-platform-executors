@@ -8,9 +8,6 @@ let package = Package(
       name: "Win32NativeExecutors",
       targets: ["Win32NativeExecutors"]),
   ],
-  dependencies: [
-    .package(url: "https://github.com/swiftlang/swift-testing.git", from: "0.2.0"),
-  ],
   targets: [
     .target(
       name: "Win32NativeExecutors"),
