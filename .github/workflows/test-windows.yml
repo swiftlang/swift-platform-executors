@@ -7,7 +7,7 @@ name: Test Windows
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "add-test-action" ]
   pull_request:
     branches: [ "main" ]
 
