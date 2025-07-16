@@ -16,8 +16,11 @@ jobs:
     runs-on: windows-latest
 
     steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
       - name: Install Swift nightly
-        run: scripts\install-nightly.ps1
+        run: '& $env:GITHUB_ACTION_PATH\scripts\install-nightly.ps1'
 
       - name: Build
         run: swift build
