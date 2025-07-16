@@ -20,7 +20,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Swift nightly
-        run: "& ${{ github.action_path }}/scripts/install-nightly.ps1"
+        working-directory: ./scripts
+        run: "& install-nightly.ps1"
 
       - name: Build
         run: swift build
