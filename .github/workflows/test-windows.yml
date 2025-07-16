@@ -21,10 +21,23 @@ jobs:
 
       - name: Install Swift nightly
         working-directory: ./scripts
-        run: "./install-nightly.ps1"
+        run: |
+          ./install-nightly.ps1
+
+      - name: Update path
+        run: |
+          # Update Path
+          $env:Path=(
+            [System.Environment]::GetEnvironmentVariable("Path","Machine"),
+            [System.Environment]::GetEnvironmentVariable("Path","User")
+          ) -match '.' -join ';'s
+
+          swift --version
 
       - name: Build
-        run: swift build
+        run: |
+          swift build
 
       - name: Test
-        run: swift test
+        run: |
+          swift test
