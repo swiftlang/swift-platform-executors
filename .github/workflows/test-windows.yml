@@ -24,15 +24,9 @@ jobs:
         run: |
           ./install-nightly.ps1
 
-      - name: Update path
-        run: |
-          # Update Path
-          $env:Path=(
-            [System.Environment]::GetEnvironmentVariable("Path","Machine"),
-            [System.Environment]::GetEnvironmentVariable("Path","User")
-          ) -match '.' -join ';'
-
-          swift --version
+          # Reset path
+          echo ($env:Path).Replace(';',"`n") `
+            | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8
 
       - name: Build
         run: |
