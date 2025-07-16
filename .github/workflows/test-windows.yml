@@ -21,7 +21,7 @@ jobs:
 
       - name: Install Swift nightly
         working-directory: ./scripts
-        run: ".\install-nightly.ps1"
+        run: "./install-nightly.ps1"
 
       - name: Build
         run: swift build
