@@ -14,8 +14,7 @@ let package = Package(
     .testTarget(
       name: "Win32NativeExecutorsTests",
       dependencies: [
-        "Win32NativeExecutors",
-        .product(name: "Testing", package: "swift-testing"),
+        "Win32NativeExecutors"
       ]
     ),
   ]
