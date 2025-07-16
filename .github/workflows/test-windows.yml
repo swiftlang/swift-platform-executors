@@ -31,8 +31,12 @@ jobs:
           # Add SDKROOT to the environment
           Add-Content $env:GITHUB_ENV "SDKROOT=$env:SDKROOT"
 
+          echo "GITHUB_ENV is $env:GITHUB_ENV"
+          type $env:GITHUB_ENV
+
       - name: Build
         run: |
+          echo "GITHUB_ENV is $env:GITHUB_ENV"
           type $env:GITHUB_ENV
           echo "SDKROOT is $env:SDKROOT"
           swift build
