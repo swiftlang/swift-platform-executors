@@ -33,6 +33,7 @@ jobs:
 
       - name: Build
         run: |
+          echo "SDKROOT is $env:SDKROOT"
           swift build
 
       - name: Test
