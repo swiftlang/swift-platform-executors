@@ -30,7 +30,7 @@ $env:Path=(
 ) -match '.' -join ';'
 
 # Update SDKROOT
-$env:SDKROOT=[System.Environment]::GetEnvironmentVariable("SDKROOT")
+$env:SDKROOT=[System.Environment]::GetEnvironmentVariable("SDKROOT","User")
 
 # Display the newly installed Swift version
 swiftc --version
