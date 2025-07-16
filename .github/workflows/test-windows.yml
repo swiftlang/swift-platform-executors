@@ -28,6 +28,9 @@ jobs:
           echo ($env:Path).Replace(';',"`n") `
             | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8
 
+          # Add SDKROOT to the environment
+          Add-Content $env:GITHUB_ENV "SDKROOT=$env:SDKROOT"
+
       - name: Build
         run: |
           swift build
