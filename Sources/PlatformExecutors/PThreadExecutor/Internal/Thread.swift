@@ -14,7 +14,7 @@
 import CPlatformExecutors
 #endif
 
-final class Thread {
+final class Thread: @unchecked Sendable {
   internal typealias ThreadBoxValue = (body: (Thread) -> Void, name: String?)
   internal typealias ThreadBox = Box<ThreadBoxValue>
 
@@ -91,19 +91,19 @@ extension Thread: CustomStringConvertible {
     case (.some(let desiredName), .some(desiredName)):
       // We know the current, actual name and the desired name and they match. This is hopefully the most common
       // situation.
-      return "Thread(name = \(desiredName))"
+      return "Thread(name: \(desiredName))"
     case (.some(let desiredName), .some(let actualName)):
       // We know both names but they're not equal. That's odd but not impossible, some misbehaved library might
       // have changed the name.
-      return "Thread(desiredName = \(desiredName), actualName = \(actualName))"
+      return "Thread(desiredName: \(desiredName), actualName: \(actualName))"
     case (.some(let desiredName), .none):
       // We only know the desired name and can't get the actual thread name. The OS might not be able to provide
       // the name to us.
-      return "Thread(desiredName = \(desiredName))"
+      return "Thread(desiredName: \(desiredName))"
     case (.none, .some(let actualName)):
       // We only know the actual name. This can happen when we don't have a reference to the actually spawned
       // thread but rather ask for the current thread and then print it.
-      return "Thread(actualName = \(actualName))"
+      return "Thread(actualName: \(actualName))"
     case (.none, .none):
       // We know nothing, sorry.
       return "Thread(n/a)"

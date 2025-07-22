@@ -17,9 +17,31 @@ internal import DequeModule
 import Dispatch
 #endif
 
-/// A task executor that is backed by a thread.
+/// A task executor that is backed by a single dedicated thread with platform-optimized I/O event handling.
+///
+/// `PThreadExecutor` provides a high-performance, single-threaded execution environment for Swift Concurrency tasks.
+/// It maintains thread affinity by ensuring all operations execute on a dedicated background thread, making it ideal for
+/// actor executors and scenarios requiring ordered processing.
+///
+/// ## Usage
+///
+/// ```swift
+/// // Create executor for actor isolation
+/// actor DatabaseActor {
+///     nonisolated let executor = PThreadExecutor(name: "DatabaseActor")
+///     nonisolated var unownedExecutor: UnownedSerialExecutor {
+///         executor.asUnownedSerialExecutor()
+///     }
+/// }
+///
+/// // Use with task executor preference
+/// let executor = PThreadExecutor(name: "ProcessingThread")
+/// await withTaskExecutorPreference(executor) {
+///     // Work executes on dedicated thread
+/// }
+/// ```
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
-public final class PThreadTaskExecutor: TaskExecutor, SerialExecutor, @unchecked Sendable {
+public final class PThreadExecutor: TaskExecutor, SerialExecutor, @unchecked Sendable {
   #if canImport(Darwin)
   typealias Selector = KQueueSelector
   #elseif canImport(Glibc)
@@ -27,38 +49,6 @@ public final class PThreadTaskExecutor: TaskExecutor, SerialExecutor, @unchecked
   #else
   #error("Unsupported platform")
   #endif
-  /// Creates a new ``ThreadedTaskExecutor``.
-  ///
-  /// - Parameter name: The thread's name.
-  /// - Returns: The task executor.
-  public static func make(
-    name: String
-  ) -> PThreadTaskExecutor {
-    var executorConditionVariable = ConditionVariable(PThreadTaskExecutor?.none)
-
-    Thread.spawnAndRun(name: name) { thread in
-      assert(Thread.current == thread)
-      do {
-        let executor = PThreadTaskExecutor(
-          thread: thread
-        )
-        executorConditionVariable.signal { optionalExecutor in
-          optionalExecutor = executor
-        }
-        try executor.run()
-      } catch {
-        // We fatalError here because the only reasons this can be hit is if the underlying kqueue/epoll give us
-        // errors that we cannot handle which is an unrecoverable error for us.
-        fatalError("Unexpected error while running SelectableEventLoop: \(error).")
-      }
-    }
-    return executorConditionVariable.wait {
-      $0 != nil
-    } block: {
-      return $0!
-    }
-  }
-
   /// This is the state that is accessed from multiple threads; hence, it must be protected via a lock.
   struct MultiThreadedState {
     /// Indicates if we are running and about to pop more jobs. If this is true then we don't have to wake the selector.
@@ -70,7 +60,10 @@ public final class PThreadTaskExecutor: TaskExecutor, SerialExecutor, @unchecked
   /// This is the state that is bound to this thread.
   struct ThreadBoundState: ~Copyable {
     /// The executor's thread.
-    private var thread: Thread
+    ///
+    /// This is an implicit unwrap since we need to create the executor before the thread. We are ensuring
+    /// it is actually set before anything happens
+    fileprivate var thread: Thread!
 
     /// The executor's selector.
     var selector: Selector {
@@ -102,14 +95,15 @@ public final class PThreadTaskExecutor: TaskExecutor, SerialExecutor, @unchecked
     }
 
     /// The backing storage for the selector.
-    var _selector: Selector
+    ///
+    /// This is an implicit unwrap since we need to create the executor before the selector. We are ensuring
+    /// it is actually set before anything happens
+    var _selector: Selector!
 
     /// The backing storage of the next executed jobs.
     var _nextExecutedJobs: Deque<UnownedJob>
 
-    init(thread: Thread, _selector: Selector, _nextExecutedJobs: Deque<UnownedJob>) {
-      self.thread = thread
-      self._selector = _selector
+    init(_nextExecutedJobs: Deque<UnownedJob>) {
       self._nextExecutedJobs = _nextExecutedJobs
     }
   }
@@ -122,24 +116,51 @@ public final class PThreadTaskExecutor: TaskExecutor, SerialExecutor, @unchecked
   /// This is the state that is accessed from the thread backing the executor.
   private var _threadBoundState: ThreadBoundState
 
-  /// The executor's thread
-  private var thread: Thread
-
   /// Returns if we are currently running on the executor.
   private var onExecutor: Bool {
-    return self.thread.isCurrent
+    return self._threadBoundState.thread.isCurrent
   }
 
-  internal init(thread: Thread) {
+  /// Creates a new `PThreadExecutor` with a named background thread.
+  ///
+  /// This initializer creates a new executor with a dedicated background thread. The executor immediately
+  /// begins processing jobs after initialization completes. The background thread continues running until
+  /// the executor is deallocated.
+  ///
+  /// - Parameter name: The name assigned to the executor's background thread. This name appears in debugging
+  ///   tools and crash reports for easier identification.
+  public convenience init(name: String) {
+    self.init()
+
+    var threadConditionVariable = ConditionVariable(Thread?.none)
+    Thread.spawnAndRun(name: name) { thread in
+      assert(Thread.current == thread)
+      do {
+        self._threadBoundState.thread = thread
+        self._threadBoundState.selector = try! Selector()
+        threadConditionVariable.signal { optionalThread in
+          optionalThread = thread
+        }
+        try self.run()
+      } catch {
+        // We fatalError here because the only reasons this can be hit is if the underlying kqueue/epoll give us
+        // errors that we cannot handle which is an unrecoverable error for us.
+        fatalError("Unexpected error while running SelectableEventLoop: \(error).")
+      }
+    }
+    threadConditionVariable.wait {
+      $0 != nil
+    } block: { _ in
+    }
+  }
+
+  internal init() {
     var nextExecutedJobs = Deque<UnownedJob>()
     // We will process 4096 jobs per while loop.
     nextExecutedJobs.reserveCapacity(4096)
     self._threadBoundState = .init(
-      thread: thread,
-      _selector: try! Selector(),
       _nextExecutedJobs: nextExecutedJobs
     )
-    self.thread = thread
   }
 
   deinit {
@@ -180,6 +201,10 @@ public final class PThreadTaskExecutor: TaskExecutor, SerialExecutor, @unchecked
         try? self._threadBoundState.wakeupSelector()
       }
     }
+  }
+
+  public func isIsolatingCurrentContext() -> Bool? {
+    return self.onExecutor
   }
 
   private func assertOnExecutor() {
@@ -247,5 +272,12 @@ public final class PThreadTaskExecutor: TaskExecutor, SerialExecutor, @unchecked
 
       self._multiThreadedState.withLock { $0.pendingJobPop = true }
     }
+  }
+}
+
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+extension PThreadExecutor: CustomStringConvertible {
+  public var description: String {
+    "PThreadExecutor(\(self._threadBoundState.thread.description))"
   }
 }

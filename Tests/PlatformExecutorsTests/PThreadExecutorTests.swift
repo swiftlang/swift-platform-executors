@@ -14,11 +14,22 @@ import Testing
 import PlatformExecutors
 
 @Suite
-struct PThreadTaskExecutorTests {
+struct PThreadExecutorTests {
   @Test
   @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
-  func runsJobs() async {
-    let executor = PThreadTaskExecutor.make(name: "Test")
+  func singleExecutor() async {
+    let executor = PThreadExecutor(name: "Test")
+    await withTaskExecutorPreference(executor) {
+      for _ in 0...100 {
+        await Task.yield()
+      }
+    }
+  }
+
+  @Test
+  @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+  func poolExecutor() async {
+    let executor = PThreadPoolExecutor(name: "Test", poolSize: 5)
     await withTaskExecutorPreference(executor) {
       for _ in 0...100 {
         await Task.yield()
