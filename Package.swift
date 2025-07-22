@@ -3,6 +3,9 @@ import PackageDescription
 
 let package = Package(
   name: "SwiftPlatformExecutors",
+  platforms: [
+    .macOS(.v26)
+  ],
   products: [
     .library(
       name: "PlatformExecutors",
@@ -12,7 +15,10 @@ let package = Package(
     )
   ],
   dependencies: [
-    .package(url: "https://github.com/apple/swift-collections.git", from: "1.0.0")
+    .package(url: "https://github.com/apple/swift-collections.git",
+             from: "1.0.0"),
+    .package(url: "https://github.com/apple/swift-docc-plugin",
+             from: "1.0.0"),
   ],
   targets: [
     .target(
