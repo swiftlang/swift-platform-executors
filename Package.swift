@@ -24,11 +24,22 @@ let package = Package(
         .define("_GNU_SOURCE")
       ]
     ),
+
+    // Tests
     .testTarget(
       name: "PlatformExecutorsTests",
       dependencies: [
-        "PlatformExecutors"
+        .target(name: "PlatformExecutors")
       ]
+    ),
+
+    // Examples
+    .executableTarget(
+      name: "PlatformExecutorsExample",
+      dependencies: [
+        .target(name: "PlatformExecutors")
+      ],
+      path: "Examples/PlatformExecutors"
     ),
   ]
 )

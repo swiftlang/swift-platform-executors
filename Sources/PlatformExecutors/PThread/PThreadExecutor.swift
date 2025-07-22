@@ -25,14 +25,6 @@ import Dispatch
 /// ## Usage
 ///
 /// ```swift
-/// // Create executor for actor isolation
-/// actor DatabaseActor {
-///     nonisolated let executor = PThreadExecutor(name: "DatabaseActor")
-///     nonisolated var unownedExecutor: UnownedSerialExecutor {
-///         executor.asUnownedSerialExecutor()
-///     }
-/// }
-///
 /// // Use with task executor preference
 /// let executor = PThreadExecutor(name: "ProcessingThread")
 /// await withTaskExecutorPreference(executor) {
@@ -133,6 +125,13 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   /// - Parameter name: The name assigned to the executor's background thread. This name appears in debugging
   ///   tools and crash reports for easier identification.
   public convenience init(name: String) {
+    self.init(name: name, poolExecutor: nil)
+  }
+
+  internal convenience init(
+    name: String,
+    poolExecutor: PThreadPoolExecutor?
+  ) {
     self.init()
 
     let conditionVariable = ConditionVariable(false)
@@ -140,8 +139,24 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
       assert(Thread.current == thread)
       do {
         conditionVariable.signal { $0.toggle() }
-        try self.run { job in
-          job.runSynchronously(on: self.asUnownedTaskExecutor())
+
+        // It is incredibly important that we pass the right task executor
+        // to the run methods otherwise the Concurrency runtime will re-enqueue
+        // the task over and over again. If this executor is part of a thread pool
+        // then we must pass the pool as the executor.
+        if let poolExecutor {
+          // We are creating the unowned task executor outside the closure to
+          // avoid retaining the pool and creating a reference cycle. Since, the
+          // pool is holding all the executors it is guaranteed that the pool
+          // is alive long enough.
+          let poolExecutor = poolExecutor.asUnownedTaskExecutor()
+          try self.run { job in
+            job.runSynchronously(on: poolExecutor)
+          }
+        } else {
+          try self.run { job in
+            job.runSynchronously(on: self.asUnownedTaskExecutor())
+          }
         }
       } catch {
         // We fatalError here because the only reasons this can be hit is if the underlying kqueue/epoll give us
