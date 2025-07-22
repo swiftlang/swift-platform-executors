@@ -89,7 +89,7 @@ public struct _TP_POOL { private var _reserved: Int }
 ///
 /// See [Thread Pools](https://learn.microsoft.com/en-us/windows/win32/procthread/thread-pools).
 public typealias PTP_POOL = UnsafeMutablePointer<_TP_POOL>
-#endif
+#endif  // !canImport(WinSDK)
 
 #if canImport(WinSDK)
 internal import Synchronization
@@ -208,7 +208,7 @@ extension ExecutorJob {
     }
   }
 }
-#endif // !canImport(WinSDK)
+#endif  // !canImport(WinSDK)
 
 /// The Win32EventLoopExecutor delegate protocol.
 ///
@@ -248,7 +248,7 @@ private func GetMessage(
   )
   return Int(unsafe getMessage(&message, hWnd, wMsgFilterMin, wMsgFilterMax))
 }
-#endif // canImport(WinSDK)
+#endif  // canImport(WinSDK)
 
 /// An executor that uses a Windows event loop.
 ///
@@ -310,7 +310,7 @@ public final class Win32EventLoopExecutor: SerialExecutor, RunLoopExecutor, @unc
   private var hEvent: HANDLE!
   private let bShouldStop: Atomic<Bool>
   private let sequence: Atomic<UInt>
-  #endif // canImport(WinSDK)
+  #endif  // canImport(WinSDK)
 
   private(set) public var isMainExecutor: Bool
 
@@ -370,7 +370,7 @@ public final class Win32EventLoopExecutor: SerialExecutor, RunLoopExecutor, @unc
       fatalError("SetEvent() failed while trying to wake event loop: error 0x\(String(dwError, radix: 16))")
     }
   }
-  #endif // canImport(WinSDK)
+  #endif  // canImport(WinSDK)
 
   public func isIsolatingCurrentContext() -> Bool {
     #if canImport(WinSDK)
@@ -465,7 +465,7 @@ public final class Win32EventLoopExecutor: SerialExecutor, RunLoopExecutor, @unc
 
     }
 
-    #endif // canImport(WinSDK)
+    #endif  // canImport(WinSDK)
   }
 
   public func stop() {
@@ -585,7 +585,7 @@ public final class Win32EventLoopExecutor: SerialExecutor, RunLoopExecutor, @unc
 
     return DWORD(truncatingIfNeeded: msToWait)
   }
-  #endif // canImport(WinSDK)
+  #endif  // canImport(WinSDK)
 
   /// Return `self` as a `SchedulableExecutor`.
   public var asSchedulable: SchedulableExecutor? {
@@ -648,7 +648,7 @@ extension Win32EventLoopExecutor: SchedulableExecutor {
       queues[queue.rawValue].push(unownedJob)
     }
     wakeEventLoop()
-    #endif // canImport(WinSDK)
+    #endif  // canImport(WinSDK)
   }
 
 }
@@ -746,7 +746,7 @@ public final class Win32ThreadPoolExecutor: TaskExecutor, @unchecked Sendable {
       unsafe SetThreadpoolCallbackPool(&cbeLowPriority, pool)
       unsafe SetThreadpoolCallbackPool(&cbeNormalPriority, pool)
     }
-    #endif // canImport(WinSDK)
+    #endif  // canImport(WinSDK)
   }
 
   deinit {
@@ -770,7 +770,7 @@ public final class Win32ThreadPoolExecutor: TaskExecutor, @unchecked Sendable {
       return unsafe withUnsafeMutablePointer(to: &cbeNormalPriority, body)
     }
   }
-  #endif // canImport(WinSDK)
+  #endif  // canImport(WinSDK)
 
   public func enqueue(_ job: consuming ExecutorJob) {
     #if canImport(WinSDK)
@@ -823,7 +823,7 @@ private func _runJobFromTimerCallback(
   unsafe job.runSynchronously(on: executor)
   unsafe CloseThreadpoolTimer(timer)
 }
-#endif // canImport(WinSDK)
+#endif  // canImport(WinSDK)
 
 extension Win32ThreadPoolExecutor: SchedulableExecutor {
 
@@ -901,7 +901,7 @@ extension Win32ThreadPoolExecutor: SchedulableExecutor {
     }
 
     unsafe SetThreadpoolTimer(timer, &fireTime, 0, msWindowLength)
-    #endif // canImport(WinSDK)
+    #endif  // canImport(WinSDK)
   }
 
 }
