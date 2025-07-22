@@ -50,7 +50,7 @@ public final class PThreadExecutor: TaskExecutor, SerialExecutor, @unchecked Sen
   #error("Unsupported platform")
   #endif
   /// This is the state that is accessed from multiple threads; hence, it must be protected via a lock.
-  struct MultiThreadedState {
+  struct MultiThreadedState: ~Copyable {
     /// Indicates if we are running and about to pop more jobs. If this is true then we don't have to wake the selector.
     var pendingJobPop = false
     /// This is the deque of enqueued jobs that we have to execute in the order they got enqueued.
@@ -78,14 +78,14 @@ public final class PThreadExecutor: TaskExecutor, SerialExecutor, @unchecked Sen
     }
 
     /// The jobs that are next in line to be executed.
-    var nextExecutedJobs: Deque<UnownedJob> {
-      get {
+    var nextExecutedJobs: NonCopyableDeque {
+      _read {
         assert(self.thread.isCurrent)
-        return self._nextExecutedJobs
+        yield self._nextExecutedJobs
       }
-      set {
+      _modify {
         assert(self.thread.isCurrent)
-        self._nextExecutedJobs = newValue
+        yield &self._nextExecutedJobs
       }
     }
 
@@ -101,9 +101,9 @@ public final class PThreadExecutor: TaskExecutor, SerialExecutor, @unchecked Sen
     var _selector: Selector!
 
     /// The backing storage of the next executed jobs.
-    var _nextExecutedJobs: Deque<UnownedJob>
+    var _nextExecutedJobs: NonCopyableDeque
 
-    init(_nextExecutedJobs: Deque<UnownedJob>) {
+    init(_nextExecutedJobs: consuming NonCopyableDeque) {
       self._nextExecutedJobs = _nextExecutedJobs
     }
   }
@@ -132,7 +132,7 @@ public final class PThreadExecutor: TaskExecutor, SerialExecutor, @unchecked Sen
   public convenience init(name: String) {
     self.init()
 
-    var threadConditionVariable = ConditionVariable(Thread?.none)
+    let threadConditionVariable = ConditionVariable(Thread?.none)
     Thread.spawnAndRun(name: name) { thread in
       assert(Thread.current == thread)
       do {
@@ -159,7 +159,7 @@ public final class PThreadExecutor: TaskExecutor, SerialExecutor, @unchecked Sen
     // We will process 4096 jobs per while loop.
     nextExecutedJobs.reserveCapacity(4096)
     self._threadBoundState = .init(
-      _nextExecutedJobs: nextExecutedJobs
+      _nextExecutedJobs: NonCopyableDeque(deque: nextExecutedJobs)
     )
   }
 
@@ -232,24 +232,23 @@ public final class PThreadExecutor: TaskExecutor, SerialExecutor, @unchecked Sen
         if !state.jobs.isEmpty {
           // We got some jobs that we should execute. Let's copy them over so we can
           // give up the lock.
-          while self._threadBoundState.nextExecutedJobs.count < 4096 {
+          while self._threadBoundState.nextExecutedJobs.deque.count < 4096 {
             guard let job = state.jobs.popFirst() else {
               break
             }
 
-            // TODO: The following CoWs right now. Need to fix that
             self._threadBoundState.nextExecutedJobs.append(job)
           }
         }
 
-        if self._threadBoundState.nextExecutedJobs.isEmpty {
+        if self._threadBoundState.nextExecutedJobs.deque.isEmpty {
           // We got no jobs to execute so we will block and need to be woken up.
           state.pendingJobPop = false
         }
       }
 
       // Execute all the jobs that were submitted
-      let didExecuteJobs = !self._threadBoundState.nextExecutedJobs.isEmpty
+      let didExecuteJobs = !self._threadBoundState.nextExecutedJobs.deque.isEmpty
 
       while let job = self._threadBoundState.nextExecutedJobs.popFirst() {
         #if canImport(Darwin)
@@ -279,5 +278,18 @@ public final class PThreadExecutor: TaskExecutor, SerialExecutor, @unchecked Sen
 extension PThreadExecutor: CustomStringConvertible {
   public var description: String {
     "PThreadExecutor(\(self._threadBoundState.thread.description))"
+  }
+}
+
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+struct NonCopyableDeque: ~Copyable {
+  var deque: Deque<UnownedJob> = []
+
+  mutating func popFirst() -> UnownedJob? {
+    self.deque.popFirst()
+  }
+
+  mutating func append(_ newElement: UnownedJob) {
+    self.deque.append(newElement)
   }
 }

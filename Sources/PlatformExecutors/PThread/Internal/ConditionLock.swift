@@ -23,7 +23,7 @@ import Musl
 #error("The concurrency lock module was unable to identify your C library.")
 #endif
 
-struct ConditionVariable<Value: ~Copyable>: ~Copyable {
+final class ConditionVariable<Value: ~Copyable> {
   #if os(Windows)
   typealias LockType = SRWLOCK
   typealias ConditionVariableType = CONDITION_VARIABLE
@@ -90,7 +90,7 @@ struct ConditionVariable<Value: ~Copyable>: ~Copyable {
     #endif
   }
 
-  mutating func signal<Return, Failure: Error>(
+  func signal<Return, Failure: Error>(
     block: (inout sending Value) throws(Failure) -> Return
   ) throws(Failure) -> Return {
     self._lock()
@@ -103,7 +103,7 @@ struct ConditionVariable<Value: ~Copyable>: ~Copyable {
     return try block(&state)
   }
 
-  mutating func signalAll<Return, Failure: Error>(
+  func signalAll<Return, Failure: Error>(
     block: (inout sending Value) throws(Failure) -> Return
   ) throws(Failure) -> Return {
     self._lock()
@@ -116,13 +116,13 @@ struct ConditionVariable<Value: ~Copyable>: ~Copyable {
     return try block(&state)
   }
 
-  mutating func wait<Return, Failure: Error>(
+  func wait<Return, Failure: Error>(
     block: (inout sending Value) throws(Failure) -> Return
   ) throws(Failure) -> Return {
     try self.wait(when: { _ in true }, block: block)
   }
 
-  mutating func wait<Return, Failure: Error>(
+  func wait<Return, Failure: Error>(
     when: (inout sending Value) -> Bool,
     block: (inout sending Value) throws(Failure) -> Return
   ) throws(Failure) -> Return {
