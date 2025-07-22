@@ -12,6 +12,86 @@
 
 #if canImport(WinSDK)
 import WinSDK
+#else
+// We define some types here for cases where we don't have the Windows SDK
+// (this is really to make documentation possible, as MSG is used in the
+// public interface).
+
+/// An opaque structure representing a window.
+@_documentation(visibility: internal)
+public struct _HWND { private var _reserved: Int }
+
+/// A window handle identifies a window.
+@_documentation(visibility: internal)
+public typealias HWND = UnsafeMutablePointer<_HWND>
+
+/// A unsigned 32-bit integer.
+@_documentation(visibility: internal)
+public typealias UINT = UInt32
+
+/// An unsigned integer of pointer size.
+@_documentation(visibility: internal)
+public typealias UINT_PTR = UInt
+
+/// An unsigned 32-bit integer.
+@_documentation(visibility: internal)
+public typealias DWORD = UInt32
+
+/// A 32-bit integer.
+@_documentation(visibility: internal)
+public typealias LONG = Int32
+
+/// A signed integer of pointer size.
+@_documentation(visibility: internal)
+public typealias LONG_PTR = Int
+
+/// The type of the wParam message argument.
+@_documentation(visibility: internal)
+public typealias WPARAM = UINT_PTR
+
+/// The type of the lParam message argument.
+@_documentation(visibility: internal)
+public typealias LPARAM = LONG_PTR
+
+/// Represents a particular point on the screen.
+///
+/// See [POINT structure (windef.h)](https://learn.microsoft.com/en-us/windows/win32/api/windef/ns-windef-point).
+public struct POINT {
+  /// The x-coordinate of this `POINT`.
+  public var x: LONG
+  /// The y-coordinate of this `POINT`.
+  public var y: LONG
+}
+
+/// A Win32 message, as retrieved by [GetMessage](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getmessage) et al.
+///
+/// See [MSG structure (winuser.h)](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-msg).
+public struct MSG {
+  /// The window this message is being sent to
+  public var hwnd: HWND
+  /// The numeric ID for the message (e.g. WM_LBUTTONDOWN)
+  public var message: UINT
+  /// A message-specific parameter
+  public var wParam: WPARAM
+  /// A message-specitic parameter
+  public var lParam: LPARAM
+  /// The system tick count at which the message was posted.
+  public var time: DWORD
+  /// The location of the mouse pointer, in screen coordinates, when the
+  /// message was posted.
+  public var pt: POINT
+}
+
+/// An opaque structure representing a thread pool.
+public struct _TP_POOL { private var _reserved: Int }
+
+/// A pointer to an opaque structure representing a thread pool.
+///
+/// See [Thread Pools](https://learn.microsoft.com/en-us/windows/win32/procthread/thread-pools).
+public typealias PTP_POOL = UnsafeMutablePointer<_TP_POOL>
+#endif
+
+#if canImport(WinSDK)
 internal import Synchronization
 
 extension ExecutorJob {
@@ -128,26 +208,28 @@ extension ExecutorJob {
     }
   }
 }
+#endif // !canImport(WinSDK)
 
 /// The Win32EventLoopExecutor delegate protocol.
 ///
 /// The delegate protocol allows programs to inject their own code into the
-/// event loop, for instance to process messages for non-modal dialogues.
+/// event loop, for instance to process messages for non-modal dialogs.
 public protocol Win32EventLoopExecutorDelegate {
 
   /// Called before the event loop calls TranslateMessage()
   ///
-  /// Parameters:
+  /// - Parameters:
   ///
-  /// - message:  The message being processed.
+  ///   - message:  The message being processed.
   ///
-  /// Returns `true` to prevent the event loop from processing the message
+  /// - Returns: `true` to prevent the event loop from processing the message
   /// further, for instance if the `preTranslateMessage` function has
   /// completely handled the message somehow.
   func preTranslateMessage(_ message: inout MSG) -> Bool
 
 }
 
+#if canImport(WinSDK)
 /// Retrieve a message from the Win32 message queue
 ///
 /// This exists to work around the incorrect return type declared by the
@@ -166,8 +248,18 @@ private func GetMessage(
   )
   return Int(unsafe getMessage(&message, hWnd, wMsgFilterMin, wMsgFilterMax))
 }
+#endif // canImport(WinSDK)
 
-/// An executor that uses a Windows event loop
+/// An executor that uses a Windows event loop.
+///
+/// This executor will stop on receipt of a `WM_QUIT` message, and can
+/// be used as a nested event loop as well (i.e. you can call ``run`` from
+/// within a task or from a message handler).
+///
+/// The message loop runs in an alertable wait state, so will cause any
+/// Windows APCs to execute.  It also allows you to intercept messages by
+/// providing a delegate, for instance to allow processing of non-modal
+/// dialogs or accelerator tables.
 @safe
 public final class Win32EventLoopExecutor: SerialExecutor, RunLoopExecutor, @unchecked Sendable {
 
@@ -209,6 +301,7 @@ public final class Win32EventLoopExecutor: SerialExecutor, RunLoopExecutor, @unc
     case suspending = 1
   }
 
+  #if canImport(WinSDK)
   private let waitQueues: Mutex<[PriorityQueue<UnownedJob>]>
   private let runQueue: Mutex<PriorityQueue<UnownedJob>>
   private var currentRunQueue: PriorityQueue<UnownedJob>
@@ -217,13 +310,26 @@ public final class Win32EventLoopExecutor: SerialExecutor, RunLoopExecutor, @unc
   private var hEvent: HANDLE!
   private let bShouldStop: Atomic<Bool>
   private let sequence: Atomic<UInt>
+  #endif // canImport(WinSDK)
 
   private(set) public var isMainExecutor: Bool
 
-  var delegate: (any Win32EventLoopExecutorDelegate)?
+  /// The delegate allows users of ``Win32EventLoopExecutor`` to inject
+  /// their own code into the event loop, for instance to process messages
+  /// for non-modal dialogs.
+  public var delegate: (any Win32EventLoopExecutorDelegate)?
 
+  /// Construct a Win32EventLoopExecutor
+  ///
+  /// - Parameters:
+  ///
+  ///   - isMainExecutor: set this to `true` if this is the main executor,
+  ///                     and `false` otherwise.
+  ///
   public init(isMainExecutor: Bool = false) {
     self.isMainExecutor = isMainExecutor
+
+    #if canImport(WinSDK)
     self.dwThreadId = nil
     self.bShouldStop = Atomic<Bool>(false)
     self.sequence = Atomic<UInt>(0)
@@ -247,12 +353,16 @@ public final class Win32EventLoopExecutor: SerialExecutor, RunLoopExecutor, @unc
         PriorityQueue(compare: compareTimestamps),
       ]
     )
+    #endif
   }
 
   deinit {
+    #if canImport(WinSDK)
     unsafe CloseHandle(hEvent)
+    #endif
   }
 
+  #if canImport(WinSDK)
   private func wakeEventLoop() {
     let bRet = unsafe SetEvent(hEvent)
     if !bRet {
@@ -260,19 +370,20 @@ public final class Win32EventLoopExecutor: SerialExecutor, RunLoopExecutor, @unc
       fatalError("SetEvent() failed while trying to wake event loop: error 0x\(String(dwError, radix: 16))")
     }
   }
+  #endif // canImport(WinSDK)
 
-  /// Check if this executor is providing isolation.
-  ///
-  /// We return true if we're on the same thread we're using for our event loop.
   public func isIsolatingCurrentContext() -> Bool {
+    #if canImport(WinSDK)
     let dwCurrentThreadId = GetCurrentThreadId()
     return dwThreadId == dwCurrentThreadId
+    #else
+    return false
+    #endif
   }
 
-  /// Run the event loop.
-  ///
-  /// This method runs a Win32 event loop.
   public func run() throws {
+    #if canImport(WinSDK)
+
     // Make sure we're running on the same thread every time
     let dwCurrentThreadId = GetCurrentThreadId()
     if dwThreadId == nil {
@@ -353,21 +464,19 @@ public final class Win32EventLoopExecutor: SerialExecutor, RunLoopExecutor, @unc
       }
 
     }
+
+    #endif // canImport(WinSDK)
   }
 
-  /// Signal to the event loop to stop running and return.
   public func stop() {
+    #if canImport(WinSDK)
     bShouldStop.store(true, ordering: .releasing)
     wakeEventLoop()
+    #endif
   }
 
-  /// Enqueue a job.
-  ///
-  /// Parameters:
-  ///
-  /// - job:   The job to schedule.
-  ///
   public func enqueue(_ job: consuming ExecutorJob) {
+    #if canImport(WinSDK)
     // Tag it with a sequence number to force ordering for same-priority jobs
     let (newSequence, _) = sequence.wrappingAdd(1, ordering: .relaxed)
     job.win32Sequence = newSequence
@@ -378,8 +487,10 @@ public final class Win32EventLoopExecutor: SerialExecutor, RunLoopExecutor, @unc
     }
 
     wakeEventLoop()
+    #endif
   }
 
+  #if canImport(WinSDK)
   /// Process the timer queues.
   ///
   /// We maintain two timer queues, one for continuous time, and one
@@ -416,7 +527,7 @@ public final class Win32EventLoopExecutor: SerialExecutor, RunLoopExecutor, @unc
   /// Looking at the timer queues, work out how long we want to wait for
   /// events on the next pass around the loop.
   ///
-  /// Returns the number of milliseconds to tell Windows to wait.
+  /// - Returns: the number of milliseconds to tell Windows to wait.
   func computeNextTimerWait() -> DWORD {
     var now: [UInt64] = [0, 0]
 
@@ -474,7 +585,9 @@ public final class Win32EventLoopExecutor: SerialExecutor, RunLoopExecutor, @unc
 
     return DWORD(truncatingIfNeeded: msToWait)
   }
+  #endif // canImport(WinSDK)
 
+  /// Return `self` as a `SchedulableExecutor`.
   public var asSchedulable: SchedulableExecutor? {
     return self
   }
@@ -488,6 +601,7 @@ extension Win32EventLoopExecutor: SchedulableExecutor {
     tolerance: C.Duration? = nil,
     clock: C
   ) {
+    #if canImport(WinSDK)
     let queue: WaitQueue
     if clock.traits.contains(.continuous) {
       queue = .continuous
@@ -534,6 +648,7 @@ extension Win32EventLoopExecutor: SchedulableExecutor {
       queues[queue.rawValue].push(unownedJob)
     }
     wakeEventLoop()
+    #endif // canImport(WinSDK)
   }
 
 }
@@ -541,29 +656,74 @@ extension Win32EventLoopExecutor: SchedulableExecutor {
 extension Win32EventLoopExecutor: MainExecutor {}
 
 /// An executor that uses a Win32 thread pool.
+///
+/// `Win32ThreadPoolExecutor` is a `TaskExecutor` that schedules tasks using
+/// the [Win32 Thread Pool API](https://learn.microsoft.com/en-us/windows/win32/procthread/thread-pooling).
+///
+/// ## Usage
+///
+/// ```swift
+/// // Create pool for parallel processing
+/// let pool = Win32ThreadPoolExecutor(poolSize: 4)
+///
+/// await withTaskExecutorPreference(pool) {
+///     // Jobs distributed across the pool
+///     async let result1 = heavyComputation1()
+///     async let result2 = heavyComputation2()
+///     async let result3 = heavyComputation3()
+///
+///     return await [result1, result2, result3]
+/// }
+/// ```
 @safe
 public final class Win32ThreadPoolExecutor: TaskExecutor, @unchecked Sendable {
 
+  #if canImport(WinSDK)
   private var cbeHighPriority = unsafe TP_CALLBACK_ENVIRON()
   private var cbeLowPriority = unsafe TP_CALLBACK_ENVIRON()
   private var cbeNormalPriority = unsafe TP_CALLBACK_ENVIRON()
+  #endif
 
   /// Construct a Win32ThreadPoolExecutor.
   ///
   /// This is a convenience initializer to avoid having to write unsafe
   /// in the normal case where you want to use the default thread pool.
+  /// Note that the default thread pool presently has a size of 500 threads,
+  /// so for CPU-bound programs, you may wish to create a more appropriately
+  /// sized pool.
   public convenience init() {
     self.init(pool: nil)
   }
 
   /// Construct a Win32ThreadPoolExecutor.
   ///
-  /// Parameters:
+  /// This is a convenience intializer that creates a thread pool with a
+  /// specified maximum size.
   ///
-  /// - pool:  The thread pool to use; `nil` means use the default thread
-  ///          pool.
+  /// - Parameters:
+  ///
+  ///   - poolSize: The maximum number of threads in the pool.  Must
+  ///               be greater than 0.
+  ///
+  public convenience init(poolSize: Int) {
+    #if canImport(WinSDK)
+    let pool = CreateThreadpool(nil)
+    SetThreadpoolThreadMaximum(pool, DWORD(poolSize))
+    self.init(pool: pool)
+    #else
+    self.init(pool: nil)
+    #endif
+  }
+
+  /// Construct a Win32ThreadPoolExecutor.
+  ///
+  /// - Parameters:
+  ///
+  ///   - pool:  The thread pool to use; `nil` means use the default thread
+  ///            pool.
   ///
   public init(pool: PTP_POOL?) {
+    #if canImport(WinSDK)
     unsafe InitializeThreadpoolEnvironment(&cbeHighPriority)
     unsafe InitializeThreadpoolEnvironment(&cbeLowPriority)
     unsafe InitializeThreadpoolEnvironment(&cbeNormalPriority)
@@ -586,14 +746,18 @@ public final class Win32ThreadPoolExecutor: TaskExecutor, @unchecked Sendable {
       unsafe SetThreadpoolCallbackPool(&cbeLowPriority, pool)
       unsafe SetThreadpoolCallbackPool(&cbeNormalPriority, pool)
     }
+    #endif // canImport(WinSDK)
   }
 
   deinit {
+    #if canImport(WinSDK)
     unsafe DestroyThreadpoolEnvironment(&cbeHighPriority)
     unsafe DestroyThreadpoolEnvironment(&cbeLowPriority)
     unsafe DestroyThreadpoolEnvironment(&cbeNormalPriority)
+    #endif
   }
 
+  #if canImport(WinSDK)
   private func withEnvironment<R>(
     for priority: JobPriority,
     body: (UnsafeMutablePointer<TP_CALLBACK_ENVIRON>) -> R
@@ -606,13 +770,10 @@ public final class Win32ThreadPoolExecutor: TaskExecutor, @unchecked Sendable {
       return unsafe withUnsafeMutablePointer(to: &cbeNormalPriority, body)
     }
   }
+  #endif // canImport(WinSDK)
 
-  /// Enqueue a job.
-  ///
-  /// Parameters:
-  ///
-  /// - job:   The job to schedule.
   public func enqueue(_ job: consuming ExecutorJob) {
+    #if canImport(WinSDK)
     unsafe job.win32ThreadPoolExecutor = self.asUnownedTaskExecutor()
 
     let priority = job.priority
@@ -630,13 +791,16 @@ public final class Win32ThreadPoolExecutor: TaskExecutor, @unchecked Sendable {
 
     unsafe SubmitThreadpoolWork(work)
     unsafe CloseThreadpoolWork(work)
+    #endif
   }
 
+  /// Return `self` as a `SchedulableExecutor`.
   public var asSchedulable: SchedulableExecutor? {
     return self
   }
 }
 
+#if canImport(WinSDK)
 @_cdecl("_swift_runJobOnThreadPool")
 private func _runJobOnThreadPool(
   instance: PTP_CALLBACK_INSTANCE?,
@@ -659,6 +823,7 @@ private func _runJobFromTimerCallback(
   unsafe job.runSynchronously(on: executor)
   unsafe CloseThreadpoolTimer(timer)
 }
+#endif // canImport(WinSDK)
 
 extension Win32ThreadPoolExecutor: SchedulableExecutor {
 
@@ -668,6 +833,7 @@ extension Win32ThreadPoolExecutor: SchedulableExecutor {
     tolerance: C.Duration? = nil,
     clock: C
   ) {
+    #if canImport(WinSDK)
     let delayAsDuration = clock.convert(from: delay)!
     let (delaySecs, delayAttos) = delayAsDuration.components
     let delay100ns = max(delaySecs * 10_000_000 + delayAttos / 100_000_000_000, 0)
@@ -735,7 +901,7 @@ extension Win32ThreadPoolExecutor: SchedulableExecutor {
     }
 
     unsafe SetThreadpoolTimer(timer, &fireTime, 0, msWindowLength)
+    #endif // canImport(WinSDK)
   }
 
 }
-#endif
