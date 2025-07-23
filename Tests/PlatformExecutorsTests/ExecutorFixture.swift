@@ -10,7 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if canImport(WinSDK)
+#if canImport(WinSDK) || os(Linux)
 import _Concurrency
 import Synchronization
 

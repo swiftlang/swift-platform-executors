@@ -11,7 +11,6 @@
 //===----------------------------------------------------------------------===//
 
 internal import Synchronization
-internal import DequeModule
 
 #if canImport(Darwin)
 import Dispatch
@@ -50,13 +49,13 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   #error("Unsupported platform")
   #endif
   /// This is the state that is accessed from multiple threads; hence, it must be protected via a lock.
-  struct MultiThreadedState: ~Copyable {
+  private struct MultiThreadedState: ~Copyable {
     /// Indicates if we are running and about to pop more jobs. If this is true then we don't have to wake the selector.
     var pendingJobPop = false
     /// Indicates if the executor should stop.
     var shouldStop = false
-    /// This is the deque of enqueued jobs that we have to execute in the order they got enqueued.
-    var jobs = Deque<UnownedJob>(minimumCapacity: 4096)
+    /// This is the queue of enqueued jobs that we have to execute in the order they got enqueued.
+    var jobs = NonCopyablePriorityQueue()
   }
 
   /// This is the state that is bound to this thread.
@@ -74,7 +73,7 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     }
 
     /// The jobs that are next in line to be executed.
-    var nextExecutedJobs: NonCopyableDeque {
+    fileprivate var nextExecutedJobs: NonCopyablePriorityQueue {
       _read {
         assert(self.thread!.isCurrent)
         yield self._nextExecutedJobs
@@ -97,9 +96,9 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     let _selector = try! Selector()
 
     /// The backing storage of the next executed jobs.
-    var _nextExecutedJobs: NonCopyableDeque
+    fileprivate var _nextExecutedJobs: NonCopyablePriorityQueue
 
-    init(_nextExecutedJobs: consuming NonCopyableDeque) {
+    fileprivate init(_nextExecutedJobs: consuming NonCopyablePriorityQueue) {
       self._nextExecutedJobs = _nextExecutedJobs
     }
   }
@@ -107,10 +106,13 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   /// This is the state that is accessed from multiple threads; hence, it is protected via a lock.
   ///
   /// - Note:In the future we could use an MPSC queue and atomics here.
-  let _multiThreadedState = Mutex(MultiThreadedState())
+  private let _multiThreadedState = Mutex(MultiThreadedState())
 
   /// This is the state that is accessed from the thread backing the executor.
   private var _threadBoundState: ThreadBoundState
+
+  /// The next sequence number of an enqueued jobs.
+  private let sequenceNumber = Atomic<UInt64>(0)
 
   /// Returns the thread of the executor
   internal var thread: Thread? {
@@ -154,24 +156,30 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   }
 
   internal init() {
-    var nextExecutedJobs = Deque<UnownedJob>()
-    // We will process 4096 jobs per while loop.
-    nextExecutedJobs.reserveCapacity(4096)
     self._threadBoundState = .init(
-      _nextExecutedJobs: NonCopyableDeque(deque: nextExecutedJobs)
+      _nextExecutedJobs: NonCopyablePriorityQueue()
     )
   }
 
   deinit {
     precondition(
-      self._multiThreadedState.withLock { $0.jobs.isEmpty },
+      self._multiThreadedState.withLock { $0.jobs.queue.isEmpty },
       "PThreadExecutor had left over jobs when deiniting."
     )
   }
 
-  public func enqueue(_ job: UnownedJob) {
+  public func enqueue(_ job: consuming ExecutorJob) {
+    if #available(macOS 26.0, *) {
+      job.sequenceNumber =
+        self.sequenceNumber.wrappingAdd(
+          1,
+          ordering: .relaxed
+        ).newValue
+    }
+
+    let unownedJob = UnownedJob(job)
     self.modifyMultiThreadedStateAndWakeUpIfNeeded { state in
-      state.jobs.append(job)
+      state.jobs.push(unownedJob)
     }
   }
 
@@ -246,19 +254,14 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
           state.shouldStop = false
           return true
         }
-        if !state.jobs.isEmpty {
+        if !state.jobs.queue.isEmpty {
           // We got some jobs that we should execute. Let's copy them over so we can
           // give up the lock.
-          while self._threadBoundState.nextExecutedJobs.deque.count < 4096 {
-            guard let job = state.jobs.popFirst() else {
-              break
-            }
-
-            self._threadBoundState.nextExecutedJobs.append(job)
-          }
+          assert(self._threadBoundState.nextExecutedJobs.queue.isEmpty)
+          swap(&state.jobs, &self._threadBoundState.nextExecutedJobs)
         }
 
-        if self._threadBoundState.nextExecutedJobs.deque.isEmpty {
+        if self._threadBoundState.nextExecutedJobs.queue.isEmpty {
           // We got no jobs to execute so we will block and need to be woken up.
           state.pendingJobPop = false
         }
@@ -271,9 +274,9 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
       }
 
       // Execute all the jobs that were submitted
-      let didExecuteJobs = !self._threadBoundState.nextExecutedJobs.deque.isEmpty
+      let didExecuteJobs = !self._threadBoundState.nextExecutedJobs.queue.isEmpty
 
-      while let job = self._threadBoundState.nextExecutedJobs.popFirst() {
+      while let job = self._threadBoundState.nextExecutedJobs.pop() {
         runJobSynchronously(job)
       }
 
@@ -299,14 +302,22 @@ extension PThreadExecutor: CustomStringConvertible {
 }
 
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
-struct NonCopyableDeque: ~Copyable {
-  var deque: Deque<UnownedJob> = []
+private struct NonCopyablePriorityQueue: ~Copyable {
+  var queue: PriorityQueue<UnownedJob>
 
-  mutating func popFirst() -> UnownedJob? {
-    self.deque.popFirst()
+  init() {
+    if #available(macOS 26.0, iOS 26.0, watchOS 26.0, tvOS 26.0, visionOS 26.0, *) {
+      self.queue = .init(compare: compareJobsByPriorityAndSequenceNumber)
+    } else {
+      self.queue = .init(compare: compareJobsByPriorityAndID)
+    }
   }
 
-  mutating func append(_ newElement: UnownedJob) {
-    self.deque.append(newElement)
+  mutating func pop() -> UnownedJob? {
+    self.queue.pop()
+  }
+
+  mutating func push(_ newElement: UnownedJob) {
+    self.queue.push(newElement)
   }
 }

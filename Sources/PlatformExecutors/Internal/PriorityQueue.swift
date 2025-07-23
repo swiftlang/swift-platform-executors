@@ -10,7 +10,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if canImport(WinSDK)
 import Swift
 
 /// A generic priority queue, with a user-defined comparison function.
@@ -39,6 +38,14 @@ struct PriorityQueue<T> {
   ///
   init(compare: @escaping (borrowing T, borrowing T) -> Bool) {
     self.compare = compare
+  }
+
+  var count: Int {
+    self.storage.count
+  }
+
+  var isEmpty: Bool {
+    self.storage.isEmpty
   }
 
   /// Push an item onto the queue.
@@ -198,4 +205,3 @@ extension PriorityQueue where T: Comparable {
     self.init(compare: >)
   }
 }
-#endif

@@ -11,15 +11,11 @@ let package = Package(
       ]
     )
   ],
-  dependencies: [
-    .package(url: "https://github.com/apple/swift-collections.git", from: "1.0.0")
-  ],
   targets: [
     .target(
       name: "PlatformExecutors",
       dependencies: [
-        .product(name: "DequeModule", package: "swift-collections"),
-        .target(name: "CPlatformExecutors"),
+        .target(name: "CPlatformExecutors")
       ]
     ),
     .target(

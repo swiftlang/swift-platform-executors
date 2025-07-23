@@ -36,4 +36,17 @@ struct PThreadExecutorTests {
       }
     }
   }
+
+  @Test(
+    arguments: [
+      PThreadExecutor(name: "Test") as any Executor,
+      PThreadPoolExecutor(name: "Test", poolSize: 1),
+      PThreadPoolExecutor(name: "Test", poolSize: 5),
+      PThreadMainExecutor(),
+    ]
+  )
+  @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+  func foo(executor: any Executor) async throws {
+    #expect(await ExecutorFixture.test(executor: executor))
+  }
 }
