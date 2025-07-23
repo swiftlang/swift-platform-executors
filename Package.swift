@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-  name: "SwiftPlatformExecutors",
+  name: "PlatformExecutors",
   products: [
     .library(
       name: "PlatformExecutors",

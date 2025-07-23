@@ -41,7 +41,7 @@ import Dispatch
 /// }
 /// ```
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
-public final class PThreadExecutor: TaskExecutor, SerialExecutor, @unchecked Sendable {
+public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   #if canImport(Darwin)
   typealias Selector = KQueueSelector
   #elseif canImport(Glibc)
@@ -53,6 +53,8 @@ public final class PThreadExecutor: TaskExecutor, SerialExecutor, @unchecked Sen
   struct MultiThreadedState: ~Copyable {
     /// Indicates if we are running and about to pop more jobs. If this is true then we don't have to wake the selector.
     var pendingJobPop = false
+    /// Indicates if the executor should stop.
+    var shouldStop = false
     /// This is the deque of enqueued jobs that we have to execute in the order they got enqueued.
     var jobs = Deque<UnownedJob>(minimumCapacity: 4096)
   }
@@ -63,28 +65,22 @@ public final class PThreadExecutor: TaskExecutor, SerialExecutor, @unchecked Sen
     ///
     /// This is an implicit unwrap since we need to create the executor before the thread. We are ensuring
     /// it is actually set before anything happens
-    fileprivate var thread: Thread!
+    fileprivate var thread: Thread?
 
     /// The executor's selector.
     var selector: Selector {
-      get {
-        assert(self.thread.isCurrent)
-        return self._selector
-      }
-      set {
-        assert(self.thread.isCurrent)
-        self._selector = newValue
-      }
+      assert(self.thread!.isCurrent)
+      return self._selector
     }
 
     /// The jobs that are next in line to be executed.
     var nextExecutedJobs: NonCopyableDeque {
       _read {
-        assert(self.thread.isCurrent)
+        assert(self.thread!.isCurrent)
         yield self._nextExecutedJobs
       }
       _modify {
-        assert(self.thread.isCurrent)
+        assert(self.thread!.isCurrent)
         yield &self._nextExecutedJobs
       }
     }
@@ -98,7 +94,7 @@ public final class PThreadExecutor: TaskExecutor, SerialExecutor, @unchecked Sen
     ///
     /// This is an implicit unwrap since we need to create the executor before the selector. We are ensuring
     /// it is actually set before anything happens
-    var _selector: Selector!
+    let _selector = try! Selector()
 
     /// The backing storage of the next executed jobs.
     var _nextExecutedJobs: NonCopyableDeque
@@ -116,9 +112,14 @@ public final class PThreadExecutor: TaskExecutor, SerialExecutor, @unchecked Sen
   /// This is the state that is accessed from the thread backing the executor.
   private var _threadBoundState: ThreadBoundState
 
+  /// Returns the thread of the executor
+  internal var thread: Thread? {
+    self._threadBoundState.thread
+  }
+
   /// Returns if we are currently running on the executor.
   private var onExecutor: Bool {
-    return self._threadBoundState.thread.isCurrent
+    return self._threadBoundState.thread?.isCurrent ?? false
   }
 
   /// Creates a new `PThreadExecutor` with a named background thread.
@@ -132,24 +133,22 @@ public final class PThreadExecutor: TaskExecutor, SerialExecutor, @unchecked Sen
   public convenience init(name: String) {
     self.init()
 
-    let threadConditionVariable = ConditionVariable(Thread?.none)
+    let conditionVariable = ConditionVariable(false)
     Thread.spawnAndRun(name: name) { thread in
       assert(Thread.current == thread)
       do {
-        self._threadBoundState.thread = thread
-        self._threadBoundState.selector = try! Selector()
-        threadConditionVariable.signal { optionalThread in
-          optionalThread = thread
+        conditionVariable.signal { $0.toggle() }
+        try self.run { job in
+          job.runSynchronously(on: self.asUnownedTaskExecutor())
         }
-        try self.run()
       } catch {
         // We fatalError here because the only reasons this can be hit is if the underlying kqueue/epoll give us
         // errors that we cannot handle which is an unrecoverable error for us.
         fatalError("Unexpected error while running SelectableEventLoop: \(error).")
       }
     }
-    threadConditionVariable.wait {
-      $0 != nil
+    conditionVariable.wait {
+      $0
     } block: { _ in
     }
   }
@@ -165,21 +164,32 @@ public final class PThreadExecutor: TaskExecutor, SerialExecutor, @unchecked Sen
 
   deinit {
     precondition(
-      self._multiThreadedState.withLock { !$0.jobs.isEmpty },
+      self._multiThreadedState.withLock { $0.jobs.isEmpty },
       "PThreadExecutor had left over jobs when deiniting."
     )
   }
 
   public func enqueue(_ job: UnownedJob) {
+    self.modifyMultiThreadedStateAndWakeUpIfNeeded { state in
+      state.jobs.append(job)
+    }
+  }
+
+  internal func stop() {
+    self.modifyMultiThreadedStateAndWakeUpIfNeeded { state in
+      state.shouldStop = true
+    }
+  }
+
+  private func modifyMultiThreadedStateAndWakeUpIfNeeded(body: (inout MultiThreadedState) -> Void) {
     if self.onExecutor {
-      // We are in the executor so we can just enqueue the job and
-      // it will get dequeued after the current run loop tick.
+      // We are in the executor so we can just modify the state.
       self._multiThreadedState.withLock { state in
-        state.jobs.append(job)
+        body(&state)
       }
     } else {
       let shouldWakeSelector = self._multiThreadedState.withLock { state in
-        state.jobs.append(job)
+        body(&state)
         guard state.pendingJobPop else {
           // We have to wake the selector and we are going to store that we are about to do that.
           state.pendingJobPop = true
@@ -189,7 +199,7 @@ public final class PThreadExecutor: TaskExecutor, SerialExecutor, @unchecked Sen
         return false
       }
 
-      // We only need to wake up the selector if we're not in the executor. If we're in the executor already, we're
+      // We only need to wake up the selector if we're not in the executor. If we're in the executor already,
       // we're running a job already which means that we'll check at least once more if there are other jobs to run.
       // While we had the lock we also checked whether the executor was _already_ going to be woken.
       // This saves us a syscall on hot loops.
@@ -223,12 +233,19 @@ public final class PThreadExecutor: TaskExecutor, SerialExecutor, @unchecked Sen
   /// Start processing the jobs and handle any I/O.
   ///
   /// This method will continue running and blocking if needed.
-  internal func run() throws {
+  internal func run(runJobSynchronously: (UnownedJob) -> Void) throws {
+    if self._threadBoundState.thread == nil {
+      self._threadBoundState.thread = Thread.current
+    }
     self.assertOnExecutor()
 
     // We need to ensure we process all jobs even if a job enqueued another job
     while true {
-      self._multiThreadedState.withLock { state in
+      let shouldStop = self._multiThreadedState.withLock { state in
+        if state.shouldStop {
+          state.shouldStop = false
+          return true
+        }
         if !state.jobs.isEmpty {
           // We got some jobs that we should execute. Let's copy them over so we can
           // give up the lock.
@@ -245,19 +262,19 @@ public final class PThreadExecutor: TaskExecutor, SerialExecutor, @unchecked Sen
           // We got no jobs to execute so we will block and need to be woken up.
           state.pendingJobPop = false
         }
+        return false
+      }
+
+      if shouldStop {
+        // We need to stop now
+        break
       }
 
       // Execute all the jobs that were submitted
       let didExecuteJobs = !self._threadBoundState.nextExecutedJobs.deque.isEmpty
 
       while let job = self._threadBoundState.nextExecutedJobs.popFirst() {
-        #if canImport(Darwin)
-        autoreleasepool {
-          job.runSynchronously(on: self.asUnownedSerialExecutor())
-        }
-        #else
-        job.runSynchronously(on: self.asUnownedSerialExecutor())
-        #endif
+        runJobSynchronously(job)
       }
 
       if didExecuteJobs {
@@ -277,7 +294,7 @@ public final class PThreadExecutor: TaskExecutor, SerialExecutor, @unchecked Sen
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
 extension PThreadExecutor: CustomStringConvertible {
   public var description: String {
-    "PThreadExecutor(\(self._threadBoundState.thread.description))"
+    "PThreadExecutor(\(self._threadBoundState.thread?.description ?? "not running"))"
   }
 }
 

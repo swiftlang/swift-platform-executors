@@ -17,11 +17,9 @@ private let sysKevent = kevent
 
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 struct KQueueSelector {
-  fileprivate let myThread: Thread
   fileprivate var selectorFD: CInt
 
   init() throws {
-    self.myThread = Thread.current
     self.selectorFD = try Self.kqueue()
 
     var event = Darwin.kevent()

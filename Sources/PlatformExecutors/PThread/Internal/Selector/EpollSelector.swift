@@ -16,12 +16,10 @@ import CPlatformExecutors
 
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 struct EpollSelector {
-  fileprivate let myThread: Thread
   fileprivate var selectorFD: CInt
   fileprivate let eventFD: CInt
 
   init() throws {
-    self.myThread = Thread.current
     self.selectorFD = try Epoll.epoll_create(size: 128)
     self.eventFD = try EventFileDescriptor.makeEventFileDescriptor(
       initval: 0,
@@ -42,7 +40,6 @@ struct EpollSelector {
   func whenReady(
     strategy: SelectorStrategy
   ) throws {
-    assert(self.myThread == Thread.current)
 
     _ = try withUnsafeTemporaryAllocation(of: Epoll.epoll_event.self, capacity: 1) { bufferPointer in
       try Epoll.epoll_wait(
@@ -60,7 +57,6 @@ struct EpollSelector {
 
   /// Wakes up the selector.
   func wakeup() throws {
-    assert(Thread.current != self.myThread)
     _ = try EventFileDescriptor.eventfd_write(fd: self.eventFD, value: 1)
   }
 
