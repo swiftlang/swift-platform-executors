@@ -1,4 +1,4 @@
-// swift-tools-version: 6.2
+// swift-tools-version: 6.1
 import PackageDescription
 
 let package = Package(
@@ -27,6 +27,13 @@ let package = Package(
       cSettings: [
         .define("_GNU_SOURCE")
       ]
+    ),
+    .executableTarget(
+      name: "PThreadExecutorsExample",
+      dependencies: [
+        .target(name: "PlatformExecutors")
+      ],
+      path: "Examples/PThreadExecutors",
     ),
     .testTarget(
       name: "PlatformExecutorsTests",
