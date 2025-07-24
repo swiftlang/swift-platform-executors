@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#if canImport(WinSDK)
 /// An ``ExecutorFactory`` that vends ``Win32EventLoopExecutor`` and
 /// ``Win32ThreadPoolExecutor``.
 ///
@@ -27,3 +28,4 @@ public struct Win32NativeExecutorFactory: ExecutorFactory {
   public static var mainExecutor: any MainExecutor { Win32EventLoopExecutor(isMainExecutor: true) }
   public static var defaultExecutor: any TaskExecutor { Win32ThreadPoolExecutor() }
 }
+#endif

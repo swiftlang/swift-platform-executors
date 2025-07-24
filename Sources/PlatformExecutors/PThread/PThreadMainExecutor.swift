@@ -30,7 +30,7 @@ public final class PThreadMainExecutor: MainExecutor, TaskExecutor, @unchecked S
 
   /// Creates a new `PThreadMainExecutor` that takes control of the current thread.
   public init() {
-    self.pThreadExecutor = PThreadExecutor()
+    self.pThreadExecutor = PThreadExecutor(poolID: nil)
   }
 
   public func enqueue(_ job: UnownedJob) {

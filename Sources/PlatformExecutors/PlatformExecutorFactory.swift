@@ -18,15 +18,15 @@ public struct PlatformExecutorFactory: ExecutorFactory {
 }
 #elseif os(Linux) || os(FreeBSD) || canImport(Darwin)
 /// Provides a reasonable default executor factory for your platform.
+@available(macOS 26.0, iOS 26.0, watchOS 26.0, tvOS 26.0, visionOS 26.0, *)
 public struct PlatformExecutorFactory: ExecutorFactory {
   public static var mainExecutor: any MainExecutor {
-    fatalError("TODO")
-    // PThreadMainExecutor()
+    print("Creating main")
+     return PThreadMainExecutor()
   }
   public static var defaultExecutor: any TaskExecutor {
-    // FIXME: The default pool size should be sensible for the hardware
-    // we're running on.
-    PThreadPoolExecutor(name: "Default Global Executor", poolSize: 16)
+    print("Creating global")
+    return PThreadPoolExecutor(name: "global", poolSize: 8, isGlobal: false)
   }
 }
 #else

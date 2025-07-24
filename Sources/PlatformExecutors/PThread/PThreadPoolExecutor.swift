@@ -34,9 +34,16 @@ internal import Synchronization
 /// }
 /// ```
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
-public final class PThreadPoolExecutor: TaskExecutor {
+public final class PThreadPoolExecutor: TaskExecutor, SerialExecutor {
+  /// An atomic for the next pool ID.
+  static let poolID = Atomic<UInt64>(0)
+
+  /// The ID of the pool used to associate concrete PThreadExecutors with a pool.
+  private let id: UInt64
+
   /// The pool's executors.
-  private let executors: [PThreadExecutor]
+  private nonisolated(unsafe) var executors: [PThreadExecutor]
+
   /// The current index for selecting the next executor to run on.
   private let index = Atomic<Int>(0)
 
@@ -50,22 +57,65 @@ public final class PThreadPoolExecutor: TaskExecutor {
   ///   - poolSize: The number of `PThreadExecutor` instances to create in the pool. Must be greater than 0.
   public init(
     name: String,
-    poolSize: Int
+    poolSize: Int,
+    isGlobal: Bool = false
   ) {
     precondition(poolSize > 0, "The pool size must be positive")
+    self.executors = []
     var executors = [PThreadExecutor]()
     executors.reserveCapacity(poolSize)
+    self.id = Self.poolID.wrappingAdd(1, ordering: .relaxed).newValue
+    let poolExecutor: PThreadPoolExecutor? = isGlobal ? nil : self
     for i in 0..<poolSize {
-      executors.append(PThreadExecutor(name: "\(name)-\(i)"))
+      executors
+        .append(
+          PThreadExecutor(name: "\(name)-\(i)", poolID: self.id, poolExecutor: self)
+        )
     }
     self.executors = executors
   }
 
-  public func enqueue(_ job: UnownedJob) {
+  public func enqueue(_ job: consuming ExecutorJob) {
+//    print(
+//      "Enqueuing",
+//      Task.defaultExecutor,
+//      Task.currentExecutor,
+//      Task.preferredExecutor
+//    )
     self.next().enqueue(job)
+  }
+
+  private func any() -> PThreadExecutor {
+    if let executor = PThreadExecutor.threadSpecificPThreadExecutor.currentValue,
+       executor.poolID == self.id {
+      // We are on an executor of the pool already.
+      return executor
+    } else {
+      // We are on another executor.
+      return self.next()
+    }
   }
 
   private func next() -> PThreadExecutor {
     self.executors[abs(self.index.wrappingAdd(1, ordering: .relaxed).newValue % self.executors.count)]
+  }
+}
+
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+extension PThreadPoolExecutor: CustomStringConvertible {
+  public var description: String {
+    "PThreadPoolExecutor(\(self.id))"
+  }
+}
+
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+extension PThreadPoolExecutor: SchedulableExecutor {
+  public func enqueue<C: Clock>(
+    _ job: consuming ExecutorJob,
+    at instant: C.Instant,
+    tolerance: C.Duration?,
+    clock: C
+  ) {
+    self.enqueue(job)
   }
 }

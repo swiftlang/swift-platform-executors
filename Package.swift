@@ -3,6 +3,7 @@ import PackageDescription
 
 let package = Package(
   name: "PlatformExecutors",
+  platforms: [.macOS("26.0")],
   products: [
     .library(
       name: "PlatformExecutors",
@@ -20,7 +21,13 @@ let package = Package(
       name: "PlatformExecutors",
       dependencies: [
         .target(name: "CPlatformExecutors")
-      ]
+      ],
+      swiftSettings: [
+        .unsafeFlags([
+          "-Xfrontend",
+          "-disable-availability-checking"
+        ])
+      ],
     ),
     .target(
       name: "CPlatformExecutors",

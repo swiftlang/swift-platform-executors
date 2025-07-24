@@ -25,14 +25,6 @@ import Dispatch
 /// ## Usage
 ///
 /// ```swift
-/// // Create executor for actor isolation
-/// actor DatabaseActor {
-///     nonisolated let executor = PThreadExecutor(name: "DatabaseActor")
-///     nonisolated var unownedExecutor: UnownedSerialExecutor {
-///         executor.asUnownedSerialExecutor()
-///     }
-/// }
-///
 /// // Use with task executor preference
 /// let executor = PThreadExecutor(name: "ProcessingThread")
 /// await withTaskExecutorPreference(executor) {
@@ -48,6 +40,10 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   #else
   #error("Unsupported platform")
   #endif
+
+  /// A thread specific executor for faster looks up when enqueuing.
+  internal static let threadSpecificPThreadExecutor = ThreadSpecificVariable<PThreadExecutor>()
+
   /// This is the state that is accessed from multiple threads; hence, it must be protected via a lock.
   private struct MultiThreadedState: ~Copyable {
     /// Indicates if we are running and about to pop more jobs. If this is true then we don't have to wake the selector.
@@ -119,6 +115,8 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     self._threadBoundState.thread
   }
 
+  internal let poolID: UInt64?
+
   /// Returns if we are currently running on the executor.
   private var onExecutor: Bool {
     return self._threadBoundState.thread?.isCurrent ?? false
@@ -133,15 +131,37 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   /// - Parameter name: The name assigned to the executor's background thread. This name appears in debugging
   ///   tools and crash reports for easier identification.
   public convenience init(name: String) {
-    self.init()
+    self.init(name: name, poolID: nil, poolExecutor: nil)
+  }
+
+  internal convenience init(
+    name: String,
+    poolID: UInt64?,
+    poolExecutor: PThreadPoolExecutor?
+  ) {
+    self.init(poolID: poolID)
 
     let conditionVariable = ConditionVariable(false)
     Thread.spawnAndRun(name: name) { thread in
       assert(Thread.current == thread)
       do {
+        Self.threadSpecificPThreadExecutor.currentValue = self
+        defer {
+          Self.threadSpecificPThreadExecutor.currentValue = nil
+        }
         conditionVariable.signal { $0.toggle() }
+        let unownedTaskExecutor = poolExecutor?.asUnownedTaskExecutor() ?? self.asUnownedTaskExecutor()
         try self.run { job in
-          job.runSynchronously(on: self.asUnownedTaskExecutor())
+          print(
+            "running",
+            Task.defaultExecutor === Task.currentExecutor,
+            Task.currentExecutor === poolExecutor,
+            Task.defaultExecutor,
+            Task.currentExecutor,
+            Task.preferredExecutor,
+            unownedTaskExecutor
+          )
+          job.runSynchronously(on: unownedTaskExecutor)
         }
       } catch {
         // We fatalError here because the only reasons this can be hit is if the underlying kqueue/epoll give us
@@ -155,7 +175,8 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     }
   }
 
-  internal init() {
+  internal init(poolID: UInt64?) {
+    self.poolID = poolID
     self._threadBoundState = .init(
       _nextExecutedJobs: NonCopyablePriorityQueue()
     )
@@ -291,6 +312,22 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
 
       self._multiThreadedState.withLock { $0.pendingJobPop = true }
     }
+  }
+}
+
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+extension PThreadExecutor: SchedulableExecutor {
+  public func enqueue<C>(_ job: consuming ExecutorJob, at instant: C.Instant, tolerance: C.Duration?, clock: C) where C : Clock {
+    self.enqueue(job)
+  }
+
+  public func enqueue<C>(
+    _ job: consuming ExecutorJob,
+    after delay: C.Duration,
+    tolerance: C.Duration?,
+    clock: C
+  ) where C : Clock {
+    self.enqueue(job)
   }
 }
 

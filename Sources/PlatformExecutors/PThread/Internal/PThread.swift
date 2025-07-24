@@ -146,6 +146,27 @@ enum PThread {
     return pthread_self()
   }
 
+  static func allocateThreadSpecificValue(destructor: @escaping ThreadSpecificKeyDestructor) -> ThreadSpecificKey {
+    var value = pthread_key_t()
+    let result = pthread_key_create(&value, Optional(destructor))
+    precondition(result == 0, "pthread_key_create failed: \(result)")
+    return value
+  }
+
+  static func deallocateThreadSpecificValue(_ key: ThreadSpecificKey) {
+    let result = pthread_key_delete(key)
+    precondition(result == 0, "pthread_key_delete failed: \(result)")
+  }
+
+  static func getThreadSpecificValue(_ key: ThreadSpecificKey) -> UnsafeMutableRawPointer? {
+    pthread_getspecific(key)
+  }
+
+  static func setThreadSpecificValue(key: ThreadSpecificKey, value: UnsafeMutableRawPointer?) {
+    let result = pthread_setspecific(key, value)
+    precondition(result == 0, "pthread_setspecific failed: \(result)")
+  }
+
   static func compareThreads(_ lhs: PThread.ThreadHandle, _ rhs: PThread.ThreadHandle) -> Bool {
     return pthread_equal(lhs, rhs) != 0
   }

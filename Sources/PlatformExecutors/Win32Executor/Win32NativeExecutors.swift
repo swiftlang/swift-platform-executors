@@ -248,7 +248,6 @@ private func GetMessage(
   )
   return Int(unsafe getMessage(&message, hWnd, wMsgFilterMin, wMsgFilterMax))
 }
-#endif  // canImport(WinSDK)
 
 /// An executor that uses a Windows event loop.
 ///
@@ -905,3 +904,4 @@ extension Win32ThreadPoolExecutor: SchedulableExecutor {
   }
 
 }
+#endif
