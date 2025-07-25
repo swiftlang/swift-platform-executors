@@ -34,7 +34,7 @@ internal import Synchronization
 /// }
 /// ```
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
-public final class PThreadPoolExecutor: TaskExecutor, SerialExecutor {
+public final class PThreadPoolExecutor: TaskExecutor {
   /// An atomic for the next pool ID.
   static let poolID = Atomic<UInt64>(0)
 
@@ -65,7 +65,6 @@ public final class PThreadPoolExecutor: TaskExecutor, SerialExecutor {
     var executors = [PThreadExecutor]()
     executors.reserveCapacity(poolSize)
     self.id = Self.poolID.wrappingAdd(1, ordering: .relaxed).newValue
-    let poolExecutor: PThreadPoolExecutor? = isGlobal ? nil : self
     for i in 0..<poolSize {
       executors
         .append(
@@ -76,12 +75,6 @@ public final class PThreadPoolExecutor: TaskExecutor, SerialExecutor {
   }
 
   public func enqueue(_ job: consuming ExecutorJob) {
-//    print(
-//      "Enqueuing",
-//      Task.defaultExecutor,
-//      Task.currentExecutor,
-//      Task.preferredExecutor
-//    )
     self.next().enqueue(job)
   }
 

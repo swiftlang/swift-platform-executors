@@ -150,18 +150,14 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
           Self.threadSpecificPThreadExecutor.currentValue = nil
         }
         conditionVariable.signal { $0.toggle() }
-        let unownedTaskExecutor = poolExecutor?.asUnownedTaskExecutor() ?? self.asUnownedTaskExecutor()
-        try self.run { job in
-          print(
-            "running",
-            Task.defaultExecutor === Task.currentExecutor,
-            Task.currentExecutor === poolExecutor,
-            Task.defaultExecutor,
-            Task.currentExecutor,
-            Task.preferredExecutor,
-            unownedTaskExecutor
-          )
-          job.runSynchronously(on: unownedTaskExecutor)
+        if let poolExecutor {
+          try self.run { job in
+            job.runSynchronously(on: poolExecutor.asUnownedTaskExecutor())
+          }
+        } else {
+          try self.run { job in
+            job.runSynchronously(on: self.asUnownedTaskExecutor())
+          }
         }
       } catch {
         // We fatalError here because the only reasons this can be hit is if the underlying kqueue/epoll give us

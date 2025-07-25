@@ -9,9 +9,10 @@ typealias DefaultExecutorFactory = PlatformExecutorFactory
 struct Example {
   static func main() async throws {
 //    print(Task.currentExecutor)
-    let pThreadExecutor = PThreadExecutor(name: "Executor")
-    let pThreadPoolExecutor = PThreadPoolExecutor(name: "Pool", poolSize: 10)
-    let dispatchExecutor = DispatchTaskExecutor(queue: DispatchQueue(label: "Queue"))
+    print("Starting", ObjectIdentifier(Task.currentExecutor), ObjectIdentifier(Task.defaultExecutor))
+//    let pThreadExecutor = PThreadExecutor(name: "Executor")
+//    let pThreadPoolExecutor = PThreadPoolExecutor(name: "Pool", poolSize: 10)
+//    let dispatchExecutor = DispatchTaskExecutor(queue: DispatchQueue(label: "Queue"))
 //    let pThread = try await ContinuousClock().measure {
 //      try await run(executor: pThreadExecutor)
 //    }
@@ -73,12 +74,17 @@ struct Example {
     }
   }
 
-  @concurrent static func runGroupGlobal() async throws {
+  static func runGroupGlobal() async throws {
+    print("In run global", Task.preferredExecutor)
     await withTaskGroup { group in
-      for _ in 0..<3 {
+      print("In group")
+      for _ in 0..<1 {
         group.addTask() {
-          for _ in 0..<3 {
+
+          print("In task")
+          for _ in 0..<1 {
             await withUnsafeContinuation { cont in
+              print("In resuming")
               cont.resume()
             }
           }
@@ -110,4 +116,27 @@ final class DispatchTaskExecutor: TaskExecutor, SerialExecutor {
       job.runSynchronously(on: self.asUnownedTaskExecutor())
     }
   }
+}
+
+@available(macOS 15.4, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+final class DispatchGlobalTaskExecutor: TaskExecutor, SerialExecutor {
+  func enqueue(_ job: UnownedJob) {
+    DispatchQueue.global().async {
+      job.runSynchronously(on: self.asUnownedTaskExecutor())
+    }
+  }
+}
+
+public class DispatchGlobal2TaskExecutor: TaskExecutor,
+                                         @unchecked Sendable {
+  public init() {}
+
+  public func enqueue(_ job: consuming ExecutorJob) {
+    let job = UnownedJob(job)
+    DispatchQueue.global().async {
+      job.runSynchronously(on: self.asUnownedTaskExecutor())
+    }
+  }
+
+  public var isMainExecutor: Bool { false }
 }
