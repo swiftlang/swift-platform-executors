@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
 #if os(Linux) || os(FreeBSD) || os(Android)
 import CPlatformExecutors
 #endif
@@ -120,3 +121,4 @@ extension Thread: Equatable {
     }
   }
 }
+#endif

@@ -10,6 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#if os(Linux) || os(FreeBSD) || canImport(Darwin)
+
 import Testing
 import PlatformExecutors
 
@@ -50,3 +52,4 @@ struct PThreadExecutorTests {
     #expect(await ExecutorFixture.test(executor: executor))
   }
 }
+#endif

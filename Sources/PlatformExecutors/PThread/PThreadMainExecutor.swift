@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
 /// A main executor that provides serial execution by taking over the current thread.
 ///
 /// ## Usage
@@ -55,3 +56,4 @@ extension PThreadMainExecutor: CustomStringConvertible {
     "PThreadMainExecutor(\(self.pThreadExecutor.thread?.description ?? "not running"))"
   }
 }
+#endif

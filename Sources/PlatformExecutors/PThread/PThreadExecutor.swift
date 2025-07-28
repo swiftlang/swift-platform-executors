@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
 internal import Synchronization
 
 #if canImport(Darwin)
@@ -336,3 +337,4 @@ private struct NonCopyablePriorityQueue: ~Copyable {
     self.queue.push(newElement)
   }
 }
+#endif

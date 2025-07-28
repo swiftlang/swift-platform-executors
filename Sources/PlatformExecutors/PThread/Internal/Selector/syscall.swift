@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
 #if canImport(Glibc)
 import Glibc
 #elseif canImport(Musl)
@@ -138,3 +139,4 @@ private func isUnacceptableErrno(_ code: Int32) -> Bool {
   }
   #endif
 }
+#endif

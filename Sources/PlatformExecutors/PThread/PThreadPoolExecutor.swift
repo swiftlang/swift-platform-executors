@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
 internal import Synchronization
 
 /// A task executor that distributes work across multiple `PThreadExecutor` instances.
@@ -82,3 +83,4 @@ extension PThreadPoolExecutor: CustomStringConvertible {
     "PThreadPoolExecutor(\(self.name))"
   }
 }
+#endif
