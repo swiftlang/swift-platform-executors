@@ -30,7 +30,7 @@ import Synchronization
 private let maxDelayTolerance = 250  // ms
 
 // For the Thread Pool executor, we can return slightly early
-private let minDelayTolerance = 1  // ms
+private let minDelayTolerance = 2  // ms
 
 func createJob(
   priority: TaskPriority,
