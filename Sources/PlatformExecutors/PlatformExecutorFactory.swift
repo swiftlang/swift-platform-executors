@@ -24,5 +24,5 @@ public struct PlatformExecutorFactory: ExecutorFactory {
   public static let defaultExecutor: any TaskExecutor = PThreadPoolExecutor(name: "global", poolSize: 8)
 }
 #else
-#error("Unsupported platform")
+typealias PlatformExecutorFactory = _Concurrency.PlatformExecutorFactory
 #endif
