@@ -12,6 +12,7 @@
 
 #if os(Windows)
 /// Provides a reasonable default executor factory for your platform.
+@available(macOS 26.0, iOS 26.0, watchOS 26.0, tvOS 26.0, visionOS 26.0, *)
 public struct PlatformExecutorFactory: ExecutorFactory {
   public static let mainExecutor: any MainExecutor = Win32EventLoopExecutor(isMainExecutor: true)
   public static let defaultExecutor: any TaskExecutor = Win32ThreadPoolExecutor()

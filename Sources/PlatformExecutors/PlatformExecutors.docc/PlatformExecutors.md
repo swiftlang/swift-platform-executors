@@ -62,5 +62,5 @@ Alternatively, you can use the following platform specific executors:
 * ``Win32EventLoopExecutor``
 * ``Win32ThreadPoolExecutor``
 * ``PThreadMainExecutor``
-* ``PThreadTaskExecutor``
+* ``PThreadExecutor``
 * ``PThreadPoolExecutor``

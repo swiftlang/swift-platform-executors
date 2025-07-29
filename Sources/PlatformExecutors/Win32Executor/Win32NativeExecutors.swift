@@ -53,9 +53,10 @@ public typealias WPARAM = UINT_PTR
 @_documentation(visibility: internal)
 public typealias LPARAM = LONG_PTR
 
-/// Represents a particular point on the screen.
+/// (Windows) Represents a particular point on the screen.
 ///
 /// See [POINT structure (windef.h)](https://learn.microsoft.com/en-us/windows/win32/api/windef/ns-windef-point).
+@_documentation(visibility: internal)
 public struct POINT {
   /// The x-coordinate of this `POINT`.
   public var x: LONG
@@ -63,7 +64,7 @@ public struct POINT {
   public var y: LONG
 }
 
-/// A Win32 message, as retrieved by [GetMessage](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getmessage) et al.
+/// (Windows) A Win32 message, as retrieved by [GetMessage](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getmessage) et al.
 ///
 /// See [MSG structure (winuser.h)](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-msg).
 public struct MSG {
@@ -83,9 +84,10 @@ public struct MSG {
 }
 
 /// An opaque structure representing a thread pool.
+@_documentation(visibility: internal)
 public struct _TP_POOL { private var _reserved: Int }
 
-/// A pointer to an opaque structure representing a thread pool.
+/// (Windows) A pointer to an opaque structure representing a thread pool.
 ///
 /// See [Thread Pools](https://learn.microsoft.com/en-us/windows/win32/procthread/thread-pools).
 public typealias PTP_POOL = UnsafeMutablePointer<_TP_POOL>
@@ -94,6 +96,7 @@ public typealias PTP_POOL = UnsafeMutablePointer<_TP_POOL>
 #if canImport(WinSDK)
 internal import Synchronization
 
+@available(macOS 14.0, *)
 extension ExecutorJob {
 
   fileprivate var win32ThreadPoolExecutor: UnownedTaskExecutor {
@@ -253,14 +256,28 @@ private func GetMessage(
 /// An executor that uses a Windows event loop.
 ///
 /// This executor will stop on receipt of a `WM_QUIT` message, and can
-/// be used as a nested event loop as well (i.e. you can call ``run`` from
+/// be used as a nested event loop as well (i.e. you can call ``run()`` from
 /// within a task or from a message handler).
 ///
 /// The message loop runs in an alertable wait state, so will cause any
 /// Windows APCs to execute.  It also allows you to intercept messages by
 /// providing a delegate, for instance to allow processing of non-modal
 /// dialogs or accelerator tables.
+///
+/// ## Usage
+///
+/// ```swift
+/// // Create main executor on current thread
+/// let mainExecutor = Win32EventLoopExecutor()
+///
+/// // Run the executor loop
+/// try mainExecutor.run()
+///
+/// // Stop the executor from another context
+/// mainExecutor.stop()
+/// ```
 @safe
+@available(macOS 26.0, *)
 public final class Win32EventLoopExecutor: SerialExecutor, RunLoopExecutor, @unchecked Sendable {
 
   struct Timestamp {
@@ -593,6 +610,7 @@ public final class Win32EventLoopExecutor: SerialExecutor, RunLoopExecutor, @unc
   }
 }
 
+@available(macOS 26.0, *)
 extension Win32EventLoopExecutor: SchedulableExecutor {
 
   public func enqueue<C: Clock>(
@@ -653,6 +671,7 @@ extension Win32EventLoopExecutor: SchedulableExecutor {
 
 }
 
+@available(macOS 26.0, *)
 extension Win32EventLoopExecutor: MainExecutor {}
 
 /// An executor that uses a Win32 thread pool.
@@ -676,6 +695,7 @@ extension Win32EventLoopExecutor: MainExecutor {}
 /// }
 /// ```
 @safe
+@available(macOS 26.0, *)
 public final class Win32ThreadPoolExecutor: TaskExecutor, @unchecked Sendable {
 
   #if canImport(WinSDK)
@@ -825,6 +845,7 @@ private func _runJobFromTimerCallback(
 }
 #endif  // canImport(WinSDK)
 
+@available(macOS 26.0, *)
 extension Win32ThreadPoolExecutor: SchedulableExecutor {
 
   public func enqueue<C: Clock>(
@@ -906,6 +927,8 @@ extension Win32ThreadPoolExecutor: SchedulableExecutor {
 
 }
 
+#if canImport(WinSDK)
+@available(macOS 14.0, *)
 private func compareJobsByPriority(
   lhs: UnownedJob,
   rhs: UnownedJob
@@ -919,3 +942,4 @@ private func compareJobsByPriority(
   }
   return lhs.priority > rhs.priority
 }
+#endif
