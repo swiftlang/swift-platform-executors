@@ -20,13 +20,29 @@ typealias DefaultExecutorFactory = PlatformExecutorFactory
 @available(macOS 26, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
 struct Example {
   static func main() async throws {
-
     await self.run(executor: nil)
     await self.runGroup(executor: nil)
 
+    await PlatformExecutorFactory.withTaskExecutor(name: "PlatformTask") { executor in
+      await self.run(executor: executor)
+    }
+    await PlatformExecutorFactory.withTaskPoolExecutor(name: "PlatformPool") { executor in
+      await self.run(executor: executor)
+    }
+    await PlatformExecutorFactory.withSerialExecutor(name: "PlatformSerial") { executor in
+      await Run(executor: executor).run()
+    }
+
     #if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
-    await self.run(executor: PThreadExecutor(name: "Executor"))
-    await self.runGroup(executor: PThreadPoolExecutor(name: "Pool"))
+    await PThreadExecutor.withExecutor(name: "PThreadTaskExecutor") { executor in
+      await self.run(executor: executor)
+    }
+    await PThreadPoolExecutor.withExecutor(name: "PThreadPool") { executor in
+      await self.run(executor: executor)
+    }
+    await PThreadSerialExecutor.withExecutor(name: "PThreadSerial") { executor in
+      await Run(executor: executor).run()
+    }
     #endif
   }
 
@@ -45,7 +61,9 @@ struct Example {
       }
     }
 
-    print("Executor \(String(describing: executor)) took \(duration) seconds for \(iterations) iterations")
+    print(
+      "Executor \(executor.debugDescription) took \(duration) seconds for \(iterations) iterations"
+    )
   }
 
   @concurrent
@@ -71,7 +89,35 @@ struct Example {
     }
 
     print(
-      "Executor \(String(describing: executor)) took \(duration) seconds for \(iterations) iterations with \(childTasks) child tasks"
+      "Executor \(executor.debugDescription) took \(duration) seconds for \(iterations) iterations with \(childTasks) child tasks"
+    )
+  }
+}
+
+@available(macOS 26, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+actor Run {
+  nonisolated var unownedExecutor: UnownedSerialExecutor {
+    self.executor.asUnownedSerialExecutor()
+  }
+  private let executor: any SerialExecutor
+
+  init(executor: any SerialExecutor) {
+    self.executor = executor
+  }
+
+  func run(
+    iterations: Int = 10_000_000
+  ) async {
+    let duration = await ContinuousClock().measure {
+      for _ in 0..<iterations {
+        await withUnsafeContinuation { cont in
+          cont.resume()
+        }
+      }
+    }
+
+    print(
+      "Actor with executor \(String(describing: self.executor)) took \(duration) seconds for \(iterations) iterations"
     )
   }
 }

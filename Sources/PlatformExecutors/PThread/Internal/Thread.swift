@@ -15,40 +15,35 @@
 import CPlatformExecutors
 #endif
 
-final class Thread: @unchecked Sendable {
-  internal typealias ThreadBoxValue = (body: (Thread) -> Void, name: String?)
+struct Thread: ~Copyable, @unchecked Sendable {
+  internal typealias ThreadBoxValue = (body: () -> Void, name: String?)
   internal typealias ThreadBox = Box<ThreadBoxValue>
 
   private let desiredName: String?
 
   /// The thread handle used by this instance.
-  private let handle: PThread.ThreadHandle
+  private var handle: PThread.ThreadHandle?
+
+  /// Indicates wether the thread must be joined to ensure no thread leaks.
+  private let mustBeJoined: Bool
 
   /// Create a new instance
-  ///
-  /// - arguments:
-  ///     - handle: The `ThreadOpsSystem.ThreadHandle` that is wrapped and used by the `Thread`.
-  internal init(handle: PThread.ThreadHandle, desiredName: String?) {
+  internal init(
+    handle: PThread.ThreadHandle,
+    desiredName: String?,
+    mustBeJoined: Bool
+  ) {
     self.handle = handle
     self.desiredName = desiredName
-  }
-
-  /// Execute the given body with the `pthread_t` that is used by this `Thread` as argument.
-  ///
-  /// - warning: Do not escape `pthread_t` from the closure for later use.
-  ///
-  /// - parameters:
-  ///     - body: The closure that will accept the `pthread_t`.
-  /// - returns: The value returned by `body`.
-  internal func withUnsafeThreadHandle<Return, Failure: Error>(
-    body: (PThread.ThreadHandle) throws(Failure) -> Return
-  ) throws(Failure) -> Return {
-    return try body(self.handle)
+    self.mustBeJoined = mustBeJoined
   }
 
   /// Get current name of the `Thread` or `nil` if not set.
   var currentName: String? {
-    return PThread.threadName(self.handle)
+    guard let handle else {
+      return nil
+    }
+    return PThread.threadName(handle)
   }
 
   /// Spawns and runs some task in a `Thread`.
@@ -56,11 +51,11 @@ final class Thread: @unchecked Sendable {
   /// - arguments:
   ///     - name: The name of the `Thread` or `nil` if no specific name should be set.
   ///     - body: The function to execute within the spawned `Thread`.
-  ///     - detach: Whether to detach the thread. If the thread is not detached it must be `join`ed.
+  /// - returns: The spawned `Thread` instance.
   static func spawnAndRun(
     name: String? = nil,
-    body: @escaping (Thread) -> Void
-  ) {
+    body: @escaping () -> Void
+  ) -> Thread {
     var handle: PThread.ThreadHandle? = nil
 
     // Store everything we want to pass into the c function in a Box so we
@@ -69,21 +64,51 @@ final class Thread: @unchecked Sendable {
     let box = ThreadBox(tuple)
 
     PThread.run(handle: &handle, args: box)
-  }
-
-  /// Returns `true` if the calling thread is the same as this one.
-  var isCurrent: Bool {
-    return PThread.isCurrentThread(self.handle)
+    return Thread(handle: handle!, desiredName: name, mustBeJoined: true)
   }
 
   /// Returns the current running `Thread`.
   static var current: Thread {
     let handle = PThread.currentThread
-    return Thread(handle: handle, desiredName: nil)
+    return Thread(handle: handle, desiredName: nil, mustBeJoined: false)
+  }
+
+  func isCurrentFunc() -> Bool {
+    return self.isCurrent
+  }
+
+  /// Returns `true` if the calling thread is the same as this one.
+  var isCurrent: Bool {
+    guard let handle else {
+      return false
+    }
+    return PThread.isCurrentThread(handle)
+  }
+
+  /// Join the thread and wait for it to finish.
+  ///
+  /// This method blocks until the thread has finished executing and its resources have been cleaned up.
+  /// It is safe to call this method multiple times - subsequent calls will be ignored.
+  ///
+  /// - Important: This method must be called to properly clean up thread resources.
+  consuming func join() {
+    guard let handle = self.handle.take() else {
+      fatalError("PThread handle was already joined")
+    }
+    PThread.joinThread(handle)
+  }
+
+  deinit {
+    if self.mustBeJoined {
+      assert(
+        self.handle == nil,
+        "Thread leak! Thread released without having been joined. Call join() to properly clean up thread resources."
+      )
+    }
   }
 }
 
-extension Thread: CustomStringConvertible {
+extension Thread {
   var description: String {
     let desiredName = self.desiredName
     let actualName = self.currentName
@@ -108,16 +133,6 @@ extension Thread: CustomStringConvertible {
     case (.none, .none):
       // We know nothing, sorry.
       return "Thread(n/a)"
-    }
-  }
-}
-
-extension Thread: Equatable {
-  static func == (lhs: Thread, rhs: Thread) -> Bool {
-    return lhs.withUnsafeThreadHandle { lhs in
-      rhs.withUnsafeThreadHandle { rhs in
-        PThread.compareThreads(lhs, rhs)
-      }
     }
   }
 }

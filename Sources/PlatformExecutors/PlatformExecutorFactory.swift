@@ -15,6 +15,45 @@
 public struct PlatformExecutorFactory: ExecutorFactory {
   public static let mainExecutor: any MainExecutor = Win32EventLoopExecutor(isMainExecutor: true)
   public static let defaultExecutor: any TaskExecutor = Win32ThreadPoolExecutor()
+
+  /// Creates a new platform-native task executor.
+  ///
+  /// - Parameters:
+  ///   - name: The base name for the executor.
+  ///   - body: A closure that gets access to the task executor for the duration of the closure.
+  public nonisolated(nonsending) static func withTaskExecutor<Return, Failure: Error>(
+    name: String,
+    body: (PlatformTaskExecutor) async throws(Failure) -> Return
+  ) async throws(Failure) -> Return {
+    fatalError()
+  }
+
+  /// Creates a new platform-native pooled task executor.
+  ///
+  /// - Parameters:
+  ///   - name: The base name for the executor.
+  ///   - poolSize: The number internal executors in the pool. Must be greater than 0.
+  ///   If `nil` is passed then the systems available core count will be used. Defaults to `nil`.
+  ///   - body: A closure that gets access to the task executor for the duration of the closure.
+  public nonisolated(nonsending) static func withTaskPoolExecutor<Return, Failure: Error>(
+    name: String,
+    poolSize: Int? = nil,
+    body: (PlatformTaskPoolExecutor) async throws(Failure) -> Return
+  ) async throws(Failure) -> Return {
+    fatalError()
+  }
+
+  /// Creates a new platform-native serial executor .
+  ///
+  /// - Parameters:
+  ///   - name: The base name for the executor.
+  ///   - body: A closure that gets access to the serial executor for the duration of the closure.
+  public nonisolated(nonsending) static func withSerialExecutor<Return, Failure: Error>(
+    name: String,
+    body: (PlatformSerialExecutor) async throws(Failure) -> Return
+  ) async throws(Failure) -> Return {
+    fatalError()
+  }
 }
 #elseif os(Linux) || os(FreeBSD) || canImport(Darwin)
 #if canImport(FoundationEssentials)
@@ -37,9 +76,87 @@ public struct PlatformExecutorFactory: ExecutorFactory {
     let coreCount = coreCountEnvironment.flatMap { Int($0) } ?? SystemCoreCount.coreCount
     return PThreadPoolExecutor(
       name: "global",
-      poolSize: coreCount
+      poolSize: coreCount,
+      taskExecutor: nil
     )
   }()
+
+  /// Creates a new platform-native task executor.
+  ///
+  /// - Parameters:
+  ///   - name: The base name for the executor.
+  ///   - body: A closure that gets access to the task executor for the duration of the closure.
+  public nonisolated(nonsending) static func withTaskExecutor<Return, Failure: Error>(
+    name: String,
+    body: (PlatformTaskExecutor) async throws(Failure) -> Return
+  ) async throws(Failure) -> Return {
+    do {
+      let platformExecutor = PlatformTaskExecutor()
+      return try await PThreadExecutor._withExecutor(
+        name: name,
+        taskExecutor: platformExecutor.asUnownedTaskExecutor(),
+        serialExecutor: nil
+      ) { executor in
+        platformExecutor.executor = executor
+        return try await body(platformExecutor)
+      }
+    } catch {
+      // This is the only possible error thrown but somehow the compiler trips up
+      throw error as! Failure
+    }
+  }
+
+  /// Creates a new platform-native pooled task executor.
+  ///
+  /// - Parameters:
+  ///   - name: The base name for the executor.
+  ///   - poolSize: The number internal executors in the pool. Must be greater than 0.
+  ///   If `nil` is passed then the systems available core count will be used. Defaults to `nil`.
+  ///   - body: A closure that gets access to the task executor for the duration of the closure.
+  public nonisolated(nonsending) static func withTaskPoolExecutor<Return, Failure: Error>(
+    name: String,
+    poolSize: Int? = nil,
+    body: (PlatformTaskPoolExecutor) async throws(Failure) -> Return
+  ) async throws(Failure) -> Return {
+    do {
+      let platformExecutor = PlatformTaskPoolExecutor()
+      return try await PThreadPoolExecutor._withExecutor(
+        name: name,
+        poolSize: poolSize,
+        taskExecutor: platformExecutor.asUnownedTaskExecutor()
+      ) { executor in
+        platformExecutor.executor = executor
+        return try await body(platformExecutor)
+      }
+    } catch {
+      // This is the only possible error thrown but somehow the compiler trips up
+      throw error as! Failure
+    }
+  }
+
+  /// Creates a new platform-native serial executor .
+  ///
+  /// - Parameters:
+  ///   - name: The base name for the executor.
+  ///   - body: A closure that gets access to the serial executor for the duration of the closure.
+  public nonisolated(nonsending) static func withSerialExecutor<Return, Failure: Error>(
+    name: String,
+    body: (PlatformSerialExecutor) async throws(Failure) -> Return
+  ) async throws(Failure) -> Return {
+    do {
+      let platformExecutor = PlatformSerialExecutor()
+      return try await PThreadSerialExecutor._withExecutor(
+        name: name,
+        serialExecutor: platformExecutor.asUnownedSerialExecutor()
+      ) { executor in
+        platformExecutor.executor = executor
+        return try await body(platformExecutor)
+      }
+    } catch {
+      // This is the only possible error thrown but somehow the compiler trips up
+      throw error as! Failure
+    }
+  }
 }
 #else
 #error("Unsupported platform")

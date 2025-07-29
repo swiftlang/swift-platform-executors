@@ -26,34 +26,34 @@
 /// mainExecutor.stop()
 /// ```
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
-public final class PThreadMainExecutor: MainExecutor, @unchecked Sendable {
-  private let pThreadExecutor: PThreadExecutor
+package final class PThreadMainExecutor: MainExecutor, @unchecked Sendable {
+  private let pThreadExecutor: PThreadExecutor!
 
   /// Creates a new `PThreadMainExecutor` that takes control of the current thread.
-  public init() {
+  package init() {
     self.pThreadExecutor = PThreadExecutor()
   }
 
-  public func enqueue(_ job: UnownedJob) {
+  package func enqueue(_ job: UnownedJob) {
     self.pThreadExecutor.enqueue(job)
   }
 
-  public func run() throws {
+  package func run() throws {
     // We are taking over the current thread
     try self.pThreadExecutor.run { job in
       job.runSynchronously(on: self.asUnownedSerialExecutor())
     }
   }
 
-  public func stop() {
+  package func stop() {
     self.pThreadExecutor.stop()
   }
 }
 
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
 extension PThreadMainExecutor: CustomStringConvertible {
-  public var description: String {
-    "PThreadMainExecutor(\(self.pThreadExecutor.thread?.description ?? "not running"))"
+  package var description: String {
+    "PThreadMainExecutor(\(self.pThreadExecutor.threadDescription))"
   }
 }
 #endif

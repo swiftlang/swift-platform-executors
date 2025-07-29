@@ -55,19 +55,81 @@ public final class PThreadPoolExecutor: TaskExecutor {
   ///     where index starts from 0.
   ///   - poolSize: The number of `PThreadExecutor` instances to create in the pool. Must be greater than 0.
   ///   If `nil` is passed then the systems available core count will be used. Defaults to `nil`.
-  public init(
+  ///   - taskExecutor: The task executor to use in-case this executor gets wrapped.
+  internal init(
     name: String,
-    poolSize: Int? = nil
+    poolSize: Int? = nil,
+    taskExecutor: UnownedTaskExecutor?
   ) {
     let poolSize = poolSize ?? SystemCoreCount.coreCount
     self.name = "\(name)-size(\(poolSize))"
     precondition(poolSize > 0, "The pool size must be positive")
     var executors = [PThreadExecutor]()
     executors.reserveCapacity(poolSize)
+    let taskExecutor = taskExecutor ?? self.asUnownedTaskExecutor()
     for i in 0..<poolSize {
-      executors.append(PThreadExecutor(name: "\(name)-\(i)", poolExecutor: self))
+      executors
+        .append(
+          PThreadExecutor(
+            name: "\(name)-\(i)",
+            serialExecutor: nil,
+            taskExecutor: taskExecutor
+          )
+        )
     }
     self.executors = executors
+  }
+
+  /// Creates a new platform-native pooled task executor.
+  ///
+  /// This method creates a pool of task executors backed by dedicated pthreads and ensures proper
+  /// thread lifecycle management. All executor threads will be automatically stopped and
+  /// joined when the body closure completes, ensuring no thread leaks.
+  ///
+  /// - Parameters:
+  ///   - name: The base name for the executor pool. Each thread will be named `"<name>-<index>"`.
+  ///   - poolSize: The number of executors in the pool. Must be greater than 0.
+  ///     If `nil` is passed then the systems available core count will be used. Defaults to `nil`.
+  ///   - body: A closure that gets access to the pooled task executor for the duration of execution.
+  /// - Returns: The value returned by the body closure.
+  public nonisolated(nonsending) static func withExecutor<Return, Failure: Error>(
+    name: String,
+    poolSize: Int? = nil,
+    body: (PThreadPoolExecutor) async throws(Failure) -> Return
+  ) async throws(Failure) -> Return {
+    do {
+      return try await self._withExecutor(
+        name: name,
+        poolSize: poolSize,
+        taskExecutor: nil,
+        body: body
+      )
+    } catch {
+      throw error as! Failure
+    }
+  }
+
+  // For some reason using typed throws here trips over the compiler
+  // and it is not able to reason that the thrown error inside asyncDo is a Failure
+  internal nonisolated(nonsending) static func _withExecutor<Return>(
+    name: String,
+    poolSize: Int? = nil,
+    taskExecutor: UnownedTaskExecutor?,
+    body: (PThreadPoolExecutor) async throws -> Return
+  ) async rethrows -> Return {
+    let executor = PThreadPoolExecutor(
+      name: name,
+      poolSize: poolSize,
+      taskExecutor: taskExecutor
+    )
+
+    return try await asyncDo {
+      try await body(executor)
+    } finally: {
+      for pThreadExecutor in executor.executors {
+        pThreadExecutor.shutdown()
+      }
+    }
   }
 
   public func enqueue(_ job: consuming ExecutorJob) {

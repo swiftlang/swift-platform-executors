@@ -55,21 +55,29 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   struct ThreadBoundState: ~Copyable {
     /// The executor's thread.
     fileprivate var thread: Thread?
+    /// Indicates if the executor took over the calling thread
+    fileprivate var tookOverThread: Bool = false
+
+    func isOnThread() -> Bool {
+      return self.thread?.isCurrentFunc() ?? false
+    }
 
     /// The executor's selector.
     var selector: Selector {
-      assert(self.thread!.isCurrent)
-      return self._selector
+      _read {
+        assert(self.isOnThread())
+        yield self._selector
+      }
     }
 
     /// The jobs that are next in line to be executed.
     fileprivate var nextExecutedJobs: NonCopyablePriorityQueue {
       _read {
-        assert(self.thread!.isCurrent)
+        assert(self.isOnThread())
         yield self._nextExecutedJobs
       }
       _modify {
-        assert(self.thread!.isCurrent)
+        assert(self.isOnThread())
         yield &self._nextExecutedJobs
       }
     }
@@ -103,9 +111,8 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   /// The next sequence number of an enqueued jobs.
   private let sequenceNumber = Atomic<UInt64>(0)
 
-  /// Returns the thread of the executor
-  internal var thread: Thread? {
-    self._threadBoundState.thread
+  internal var threadDescription: String {
+    return self._threadBoundState.thread?.description ?? "not running"
   }
 
   /// Returns if we are currently running on the executor.
@@ -113,27 +120,62 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     return self._threadBoundState.thread?.isCurrent ?? false
   }
 
-  /// Creates a new `PThreadExecutor` with a named background thread.
+  /// Creates a new platform-native task executor.
   ///
-  /// This initializer creates a new executor with a dedicated background thread. The executor immediately
-  /// begins processing jobs after initialization completes. The background thread continues running until
-  /// the executor is deallocated.
+  /// This method creates a task executor backed by a dedicated pthread and ensures proper
+  /// thread lifecycle management. The executor's thread will be automatically stopped and
+  /// joined when the body closure completes, ensuring no thread leaks.
   ///
-  /// - Parameter name: The name assigned to the executor's background thread. This name appears in debugging
-  ///   tools and crash reports for easier identification.
-  public convenience init(name: String) {
-    self.init(name: name, poolExecutor: nil)
+  /// - Parameters:
+  ///   - name: The name assigned to the executor's background thread.
+  ///   - body: A closure that gets access to the task executor for the duration of execution.
+  /// - Returns: The value returned by the body closure.
+  public nonisolated(nonsending) static func withExecutor<Return, Failure: Error>(
+    name: String,
+    body: (PThreadExecutor) async throws(Failure) -> Return
+  ) async throws(Failure) -> Return {
+    do {
+      return try await self._withExecutor(
+        name: name,
+        taskExecutor: nil,
+        serialExecutor: nil,
+        body: body
+      )
+    } catch {
+      throw error as! Failure
+    }
+  }
+
+  // For some reason using typed throws here trips over the compiler
+  // and it is not able to reason that the thrown error inside asyncDo is a Failure
+  internal nonisolated(nonsending) static func _withExecutor<Return>(
+    name: String,
+    taskExecutor: UnownedTaskExecutor?,
+    serialExecutor: UnownedSerialExecutor?,
+    body: (PThreadExecutor) async throws -> Return
+  ) async rethrows -> Return {
+    let executor = PThreadExecutor(
+      name: name,
+      serialExecutor: serialExecutor,
+      taskExecutor: taskExecutor
+    )
+
+    return try await asyncDo {
+      try await body(executor)
+    } finally: {
+      executor.shutdown()
+    }
   }
 
   internal convenience init(
     name: String,
-    poolExecutor: PThreadPoolExecutor?
+    serialExecutor: UnownedSerialExecutor?,
+    taskExecutor: UnownedTaskExecutor?
   ) {
     self.init()
 
     let conditionVariable = ConditionVariable(false)
-    Thread.spawnAndRun(name: name) { thread in
-      assert(Thread.current == thread)
+    let thread = Thread.spawnAndRun(name: name) {
       do {
         conditionVariable.signal { $0.toggle() }
 
@@ -141,14 +183,13 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
         // to the run methods otherwise the Concurrency runtime will re-enqueue
         // the task over and over again. If this executor is part of a thread pool
         // then we must pass the pool as the executor.
-        if let poolExecutor {
-          // We are creating the unowned task executor outside the closure to
-          // avoid retaining the pool and creating a reference cycle. Since, the
-          // pool is holding all the executors it is guaranteed that the pool
-          // is alive long enough.
-          let poolExecutor = poolExecutor.asUnownedTaskExecutor()
+        if let taskExecutor {
           try self.run { job in
-            job.runSynchronously(on: poolExecutor)
+            job.runSynchronously(on: taskExecutor)
+          }
+        } else if let serialExecutor {
+          try self.run { job in
+            job.runSynchronously(on: serialExecutor)
           }
         } else {
           try self.run { job in
@@ -161,6 +202,9 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
         fatalError("Unexpected error while running SelectableEventLoop: \(error).")
       }
     }
+
+    self._threadBoundState.thread = consume thread
+
     conditionVariable.wait {
       $0
     } block: { _ in
@@ -199,6 +243,15 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     self.modifyMultiThreadedStateAndWakeUpIfNeeded { state in
       state.shouldStop = true
     }
+  }
+
+  internal func shutdown() {
+    self.stop()
+    guard let thread = self._threadBoundState.thread.take() else {
+      fatalError("Executor already shutdown")
+    }
+
+    thread.join()
   }
 
   private func modifyMultiThreadedStateAndWakeUpIfNeeded(body: (inout MultiThreadedState) -> Void) {
@@ -256,6 +309,7 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   internal func run(runJobSynchronously: (UnownedJob) -> Void) throws {
     if self._threadBoundState.thread == nil {
       self._threadBoundState.thread = Thread.current
+      self._threadBoundState.tookOverThread = true
     }
     self.assertOnExecutor()
 

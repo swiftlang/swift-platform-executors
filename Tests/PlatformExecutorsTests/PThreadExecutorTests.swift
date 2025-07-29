@@ -20,10 +20,11 @@ struct PThreadExecutorTests {
   @Test
   @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
   func singleExecutor() async {
-    let executor = PThreadExecutor(name: "Test")
-    await withTaskExecutorPreference(executor) {
-      for _ in 0...100 {
-        await Task.yield()
+    await PThreadExecutor.withExecutor(name: "Test") { executor in
+      await withTaskExecutorPreference(executor) {
+        for _ in 0...100 {
+          await Task.yield()
+        }
       }
     }
   }
@@ -31,25 +32,36 @@ struct PThreadExecutorTests {
   @Test
   @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
   func poolExecutor() async {
-    let executor = PThreadPoolExecutor(name: "Test", poolSize: 5)
-    await withTaskExecutorPreference(executor) {
-      for _ in 0...100 {
-        await Task.yield()
+    await PThreadPoolExecutor.withExecutor(
+      name: "Test",
+      poolSize: 5
+    ) { executor in
+      await withTaskExecutorPreference(executor) {
+        for _ in 0...100 {
+          await Task.yield()
+        }
       }
     }
   }
 
-  @Test(
-    arguments: [
-      PThreadExecutor(name: "Test") as any Executor,
-      PThreadPoolExecutor(name: "Test", poolSize: 1),
-      PThreadPoolExecutor(name: "Test", poolSize: 5),
-      PThreadMainExecutor(),
-    ]
-  )
+  @Test
   @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
-  func foo(executor: any Executor) async throws {
-    #expect(await ExecutorFixture.test(executor: executor))
+  func test() async throws {
+    await PThreadExecutor.withExecutor(name: "Test") { executor in
+      #expect(await ExecutorFixture.test(executor: executor))
+    }
+    await PThreadPoolExecutor.withExecutor(name: "Test") { executor in
+      #expect(await ExecutorFixture.test(executor: executor))
+    }
+    await PThreadSerialExecutor.withExecutor(name: "Test") { executor in
+      #expect(await ExecutorFixture.test(executor: executor))
+    }
+
+    let mainExecutor = PThreadMainExecutor()
+    #expect(await ExecutorFixture.test(executor: mainExecutor))
+    // We are manually shutting it down since normally it is expeceted to live
+    // for the entire duration of a process
+    //    mainExecutor.pThreadExecutor.shutdown()
   }
 }
 #endif

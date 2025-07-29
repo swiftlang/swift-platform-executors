@@ -125,7 +125,7 @@ enum PThread {
           }
         }
 
-        body(Thread(handle: hThread, desiredName: name))
+        body()
 
         #if os(Android)
         return UnsafeMutableRawPointer(bitPattern: 0xdeadbee)!
@@ -148,6 +148,11 @@ enum PThread {
 
   static func compareThreads(_ lhs: PThread.ThreadHandle, _ rhs: PThread.ThreadHandle) -> Bool {
     return pthread_equal(lhs, rhs) != 0
+  }
+
+  static func joinThread(_ thread: PThread.ThreadHandle) {
+    let result = pthread_join(thread, nil)
+    precondition(result == 0, "pthread_join failed with error code: \(result)")
   }
 }
 
