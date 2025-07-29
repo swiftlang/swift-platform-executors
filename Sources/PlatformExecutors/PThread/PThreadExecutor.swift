@@ -54,9 +54,6 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   /// This is the state that is bound to this thread.
   struct ThreadBoundState: ~Copyable {
     /// The executor's thread.
-    ///
-    /// This is an implicit unwrap since we need to create the executor before the thread. We are ensuring
-    /// it is actually set before anything happens
     fileprivate var thread: Thread?
 
     /// The executor's selector.
@@ -84,8 +81,7 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
 
     /// The backing storage for the selector.
     ///
-    /// This is an implicit unwrap since we need to create the executor before the selector. We are ensuring
-    /// it is actually set before anything happens
+    /// This is a force try since there really is no way to handle these errors and this should never fail.
     let _selector = try! Selector()
 
     /// The backing storage of the next executed jobs.

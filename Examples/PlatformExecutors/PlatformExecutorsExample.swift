@@ -26,7 +26,7 @@ struct Example {
 
     #if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
     await self.run(executor: PThreadExecutor(name: "Executor"))
-    await self.runGroup(executor: PThreadPoolExecutor(name: "Pool", poolSize: 8))
+    await self.runGroup(executor: PThreadPoolExecutor(name: "Pool"))
     #endif
   }
 

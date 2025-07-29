@@ -54,11 +54,13 @@ public final class PThreadPoolExecutor: TaskExecutor {
   ///   - name: The base name for the executor pool. Each thread in the pool will be named `"<name>-<index>"`
   ///     where index starts from 0.
   ///   - poolSize: The number of `PThreadExecutor` instances to create in the pool. Must be greater than 0.
+  ///   If `nil` is passed then the systems available core count will be used. Defaults to `nil`.
   public init(
     name: String,
-    poolSize: Int
+    poolSize: Int? = nil
   ) {
-    self.name = name
+    let poolSize = poolSize ?? SystemCoreCount.coreCount
+    self.name = "\(name)-size(\(poolSize))"
     precondition(poolSize > 0, "The pool size must be positive")
     var executors = [PThreadExecutor]()
     executors.reserveCapacity(poolSize)
