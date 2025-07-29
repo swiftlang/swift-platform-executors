@@ -1,17 +1,52 @@
 # Swift Platform Executors
 
-This package provides platform-native executors for Swift Concurrency that
-do not rely on Dispatch or Foundation to provide the job scheduling system.
+> [!WARNING]
+> This package is currently still under active development.
 
-## Getting Started
+This package provides platform-native executors for Swift Concurrency.
 
-Below is a description of the steps you need to take to use this
-package.
+🚀 Swift package for Swift Concurrency executors
+📦 Compatible with Swift Package Manager
+📱 Supports Linux, Windows, iOS, macOS, watchOS, tvOS, and visionOS
+🔧 Built with Swift 6.2+, Xcode 26+
 
-#### Add the dependency
+🔗 Jump to:
+- 📖 [Overview](#overview)
+- ⚙️ [Use Cases](#use-cases)
+- 📋 [Glossary](#glossary)
+- 🏁 [Getting Started](#getting-started)
+- 📘 [Documentation](#documentation)
+- 🧰 [Release Info](#release-info)
+- 💡 [Contributing](#contributing)
+- 🛠️ [Support](#support)
+- 🔐 [Security](#security)
+- 📄 [License](#license)
 
-You will need to add the dependency to your `Package.swift`, as show
-below:
+## 📖 Overview
+
+This package provides high-performance platform-native executors for Swift
+Concurrency that do not rely on Dispatch or Foundation to provide the job
+scheduling system.
+
+
+## ⚙️ Use Cases
+
+The executors provided by this package are intended to be used as the default
+executors on their respective platform. Furthermore, individual instances
+of these executors can be created to provide custom actor or task executors.
+
+## 🏁 Getting Started
+
+### Prerequisites
+
+- Swift version: 6.2+
+
+### Installation / Integration
+
+#### Adding as a Dependency
+
+To use Swift Platform Executors in your Swift project, add it as a dependency in
+ your `Package.swift` file:
 
 ```swift
 .package(
@@ -20,43 +55,28 @@ below:
 ),
 ```
 
-You will also need to add it to your application or library target,
-e.g:
+### Usage
+
+Once [the relevant Swift Evolution proposal lands](https://github.com/swiftlang/swift-evolution/pull/2654/files),
+it will be possible to replace the default main and global executors with
+executors from this package.
+
+To use the provided executors as the default executors in your application, add
+the following type alias to the file including your appliation's main entry point.
 
 ```swift
-.target(name: "MyApplication", dependencies: ["SwiftPlatformExecutors"]),
+import PlatformExecutors
+
+typealias DefaultExecutorFactory = PlatformExecutorFactory
 ```
 
+Be aware that if you take advantage of this option, the Dispatch main
+queue will not be processed, so anything that relies explicitly on
+`Dispatch.main` will not work.
 
-## Getting started
+#### Windows
 
-Below is a description of the steps you need to take to use this
-package.
-
-#### Add the dependency
-
-You will need to add the dependency to your `Package.swift`, as show
-below:
-
-```swift
-.package(
-  url: "https://github.com/swiftlang/swift-win32-native-executors",
-  from: "0.0.1"
-),
-```
-
-You will also need to add it to your application or library target,
-e.g:
-
-```swift
-.target(name: "MyApplication", dependencies: ["Win32NativeExecutors"]),
-```
-
-#### Using the executors
-
-##### Windows
-
-###### `Win32EventLoopExecutor`
+##### `Win32EventLoopExecutor`
 
 `Win32EventLoopExecutor` is a
 [`SerialExecutor`](https://developer.apple.com/documentation/swift/serialexecutor)
@@ -157,16 +177,37 @@ you can use the `Win32ThreadPoolExecutor(pool: PTP_POOL?)` API to
 construct an executor that will target that thread pool specifically.
 Passing `nil` to that API will use the default pool.
 
-##### Replacing the default main and global executors
+## 📘 Documentation
 
-Once [the relevant Swift Evolution proposal lands](https://github.com/swiftlang/swift-evolution/pull/2654/files), it will be possible
-to replace the default main and global executors with executors from
-this package.
+- [API Documentation](https://swiftpackageindex.com/swiftlang/swift-platform-executors/documentation) - Complete API reference and guides
 
-See [the
-proposal](https://github.com/swiftlang/swift-evolution/pull/2654/files)
-for more information on doing this.
+## 🧰 Release Info
 
-Be aware that if you take advantage of this option, the Dispatch main
-queue will not be processed, so anything that relies explicitly on
-`Dispatch.main` will not work.
+This repository is released as a package.
+- Release Cadence: Whenever new significant changes have landed on `main`.
+
+## 💡 Contributing
+
+We welcome contributions to Swift Platform Executors! 
+
+To get started, please read the [Contributing Guide](https://www.swift.org/contributing/).
+
+## 🛠️ Support
+
+If you have any questions or need help, feel free to reach out by [opening an issue](https://github.com/swiftlang/swift-platform-executors/issues) or
+contacting the maintainers.
+
+- [GitHub Issues](https://github.com/swiftlang/swift-platform-executors/issues) - Bug reports and feature requests
+- [CODEOWNERS](.github/CODEOWNERS]
+
+This repo is part of the Platform Steering Group.
+
+## 🔐 Security
+
+If you discover a security vulnerability, please follow our
+[security policy](https://github.com/swiftlang/swift-platform-executors?tab=security-ov-file)
+ for responsible disclosure.
+
+## License
+
+This project is licensed under the terms of the [LICENSE](LICENSE.txt)
