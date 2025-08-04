@@ -1,6 +1,17 @@
 // swift-tools-version: 6.2
 import PackageDescription
 
+// Make sure that when the Swift Package Index builds our documentation,
+// we enable BUILDING_DOCS.
+import Foundation
+
+var swiftSettings: [SwiftSetting] = []
+if ProcessInfo.processInfo.environment["SPI_PROCESSING"] == "1"
+  || ProcessInfo.processInfo.environment["BUILDING_DOCS"] == "1"
+{
+  swiftSettings.append(.define("BUILDING_DOCS"))
+}
+
 let package = Package(
   name: "PlatformExecutors",
   products: [
@@ -19,7 +30,8 @@ let package = Package(
       name: "PlatformExecutors",
       dependencies: [
         .target(name: "CPlatformExecutors")
-      ]
+      ],
+      swiftSettings: swiftSettings
     ),
     .target(
       name: "CPlatformExecutors",
