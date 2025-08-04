@@ -51,4 +51,16 @@ int CPlatformExecutors_pthread_getname_np(pthread_t thread, char *name, size_t l
     return pthread_getname_np(thread, name, len);
 #endif
 }
+
 #endif
+
+// Dispatch executor support (Darwin only)
+#ifdef __APPLE__
+
+#include <dispatch/dispatch.h>
+
+void CPlatformExecutors_dispatchMain(void) {
+    dispatch_main();
+}
+
+#endif // __has_include(<dispatch/dispatch.h>)

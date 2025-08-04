@@ -11,10 +11,12 @@
 //===----------------------------------------------------------------------===//
 
 /// A platform-native task executor.
-@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+@available(macOS 26.0, iOS 26.0, watchOS 26.0, tvOS 26.0, visionOS 26.0, *)
 public final class PlatformTaskExecutor: TaskExecutor {
-  #if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
+  #if os(Linux) || os(Android) || os(FreeBSD)
   typealias Executor = PThreadExecutor
+  #elseif canImport(Darwin)
+  typealias Executor = DispatchTaskExecutor
   #elseif os(Windows)
   // TODO: This is not the right type
   typealias Executor = Win32EventLoopExecutor

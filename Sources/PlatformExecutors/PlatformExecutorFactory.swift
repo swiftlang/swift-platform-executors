@@ -55,7 +55,69 @@ public struct PlatformExecutorFactory: ExecutorFactory {
     fatalError()
   }
 }
-#elseif os(Linux) || os(FreeBSD) || canImport(Darwin)
+#elseif canImport(Darwin)
+/// Provides a reasonable default executor factory for your platform.
+@available(macOS 26.0, iOS 26.0, watchOS 26.0, tvOS 26.0, visionOS 26.0, *)
+public struct PlatformExecutorFactory: ExecutorFactory {
+  public static let mainExecutor: any MainExecutor = DispatchMainExecutor()
+  public static let defaultExecutor: any TaskExecutor = DispatchGlobalTaskExecutor()
+
+  /// Creates a new platform-native task executor.
+  ///
+  /// - Parameters:
+  ///   - name: The base name for the executor.
+  ///   - body: A closure that gets access to the task executor for the duration of the closure.
+  public nonisolated(nonsending) static func withTaskExecutor<Return, Failure: Error>(
+    name: String,
+    body: (PlatformTaskExecutor) async throws(Failure) -> Return
+  ) async throws(Failure) -> Return {
+    let platformExecutor = PlatformTaskExecutor()
+    platformExecutor.executor = DispatchTaskExecutor(
+      name: name,
+      taskExecutor: platformExecutor.asUnownedTaskExecutor()
+    )
+    return try await body(platformExecutor)
+  }
+
+  /// Creates a new platform-native pooled task executor.
+  ///
+  /// - Parameters:
+  ///   - name: The base name for the executor.
+  ///   - poolSize: The number internal executors in the pool. Must be greater than 0.
+  ///   If `nil` is passed then the systems available core count will be used. Defaults to `nil`.
+  ///   - body: A closure that gets access to the task executor for the duration of the closure.
+  public nonisolated(nonsending) static func withTaskPoolExecutor<Return, Failure: Error>(
+    name: String,
+    poolSize: Int? = nil,
+    body: (PlatformTaskPoolExecutor) async throws(Failure) -> Return
+  ) async throws(Failure) -> Return {
+    let platformExecutor = PlatformTaskPoolExecutor()
+    platformExecutor.executor = DispatchTaskPoolExecutor(
+      name: name,
+      taskExecutor: platformExecutor.asUnownedTaskExecutor()
+    )
+    return try await body(platformExecutor)
+  }
+
+  /// Creates a new platform-native serial executor .
+  ///
+  /// - Parameters:
+  ///   - name: The base name for the executor.
+  ///   - body: A closure that gets access to the serial executor for the duration of the closure.
+  public nonisolated(nonsending) static func withSerialExecutor<Return, Failure: Error>(
+    name: String,
+    body: (PlatformSerialExecutor) async throws(Failure) -> Return
+  ) async throws(Failure) -> Return {
+    let platformExecutor = PlatformSerialExecutor()
+    platformExecutor.executor = DispatchSerialExecutor(
+      name: name,
+      serialExecutor: platformExecutor.asUnownedSerialExecutor()
+    )
+    return try await body(platformExecutor)
+  }
+}
+
+#elseif os(Linux) || os(FreeBSD)
 #if canImport(FoundationEssentials)
 import FoundationEssentials
 #else

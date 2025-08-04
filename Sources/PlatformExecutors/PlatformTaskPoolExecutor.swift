@@ -11,10 +11,12 @@
 //===----------------------------------------------------------------------===//
 
 /// A platform-native that distributes work across multiple threads.
-@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+@available(macOS 26.0, iOS 26.0, watchOS 26.0, tvOS 26.0, visionOS 26.0, *)
 public final class PlatformTaskPoolExecutor: TaskExecutor {
-  #if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
+  #if os(Linux) || os(Android) || os(FreeBSD)
   typealias Executor = PThreadPoolExecutor
+  #elseif canImport(Darwin)
+  typealias Executor = DispatchTaskPoolExecutor
   #elseif os(Windows)
   typealias Executor = Win32ThreadPoolExecutor
   #endif

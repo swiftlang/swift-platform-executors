@@ -20,9 +20,11 @@ typealias DefaultExecutorFactory = PlatformExecutorFactory
 @available(macOS 26, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
 struct Example {
   static func main() async throws {
+    // Default executor
     await self.run(executor: nil)
     await self.runGroup(executor: nil)
 
+    // Platform executors
     await PlatformExecutorFactory.withTaskExecutor(name: "PlatformTask") { executor in
       await self.run(executor: executor)
     }
@@ -33,6 +35,24 @@ struct Example {
       await Run(executor: executor).run()
     }
 
+    // DispatchQueue based executors
+    #if canImport(Darwin)  // Gated by Darwin because the conformances only exist on Darwin
+    await self.run(executor: DispatchQueue(label: "Queue"))
+    // Disabled the below for now since it takes the slow path in the current
+    // Dispatch implementation
+    //    await self.runGroup(executor: DispatchQueue.global())
+    await Run(
+      executor: DispatchSerialQueue(label: "Serial Queue")
+        as! (
+          any SerialExecutor
+        )  // The conformance to SerialExecutor is availaiblity gated but the
+      // compiler isn't capable of finding it in a #if
+    ).run()
+    #endif
+    await self.run(executor: DispatchGlobalTaskExecutor())
+    await self.runGroup(executor: DispatchGlobalTaskExecutor())
+
+    // PThread based executors
     #if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
     await PThreadExecutor.withExecutor(name: "PThreadTaskExecutor") { executor in
       await self.run(executor: executor)
