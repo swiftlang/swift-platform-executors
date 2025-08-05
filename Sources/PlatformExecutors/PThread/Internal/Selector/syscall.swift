@@ -90,7 +90,6 @@ internal func syscall<T: FixedWidthInteger>(
       #else
       let err = errno
       #endif
-      print("errno", err)
       switch (err, blocking) {
       case (EINTR, _):
         continue

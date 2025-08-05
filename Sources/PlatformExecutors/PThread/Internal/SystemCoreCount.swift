@@ -20,12 +20,6 @@
 import Darwin
 #endif
 
-#if canImport(FoundationEssentials)
-import FoundationEssentials
-#else
-import Foundation
-#endif
-
 enum SystemCoreCount {
   static var coreCount: Int {
     #if os(Linux)
@@ -96,8 +90,46 @@ enum SystemCoreCount {
   }
 
   private static func firstLineOfFile(path: String) throws -> String {
-    return try String(contentsOfFile: path, encoding: .utf8)
+    let fd = try syscall(blocking: false) {
+      open(path, O_RDONLY)
+    }.result
+    guard fd != -1 else {
+      throw SystemError()
+    }
+
+    let result = Result {
+      var buffer = [UInt8](repeating: 0, count: 4096)
+      let bytesRead = try syscall(blocking: false) {
+        read(fd, &buffer, buffer.count)
+      }.result
+      guard bytesRead > 0 else {
+        throw SystemError()
+      }
+
+      let content = String(decoding: buffer[0..<Int(bytesRead)], as: UTF8.self)
+
+      guard let newlineIndex = content.firstIndex(of: "\n") else {
+        // Manual trimming of whitespace and newlines
+        var trimmed = content
+        while trimmed.last?.isWhitespace == true || trimmed.last?.isNewline == true {
+          trimmed.removeLast()
+        }
+        while trimmed.first?.isWhitespace == true || trimmed.first?.isNewline == true {
+          trimmed.removeFirst()
+        }
+        return trimmed
+      }
+      return String(content[..<newlineIndex])
+    }
+
+    try syscall(blocking: false) {
+      close(fd)
+    }
+
+    return try result.get()
   }
+
+  private struct SystemError: Error {}
 
   #endif
 }
