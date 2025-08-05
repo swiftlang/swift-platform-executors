@@ -20,19 +20,20 @@ struct PThreadExecutorTests {
   @Test
   @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
   func singleExecutor() async {
-    await PThreadExecutor.withExecutor(name: "Test") { executor in
-      await withTaskExecutorPreference(executor) {
-        for _ in 0...100 {
-          await Task.yield()
+    await PThreadTaskExecutor
+      .withExecutor(name: "Test", poolSize: 1) { executor in
+        await withTaskExecutorPreference(executor) {
+          for _ in 0...100 {
+            await Task.yield()
+          }
         }
       }
-    }
   }
 
   @Test
   @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
   func poolExecutor() async {
-    await PThreadPoolExecutor.withExecutor(
+    await PThreadTaskExecutor.withExecutor(
       name: "Test",
       poolSize: 5
     ) { executor in
@@ -50,7 +51,7 @@ struct PThreadExecutorTests {
     await PThreadExecutor.withExecutor(name: "Test") { executor in
       #expect(await ExecutorFixture.test(executor: executor))
     }
-    await PThreadPoolExecutor.withExecutor(name: "Test") { executor in
+    await PThreadTaskExecutor.withExecutor(name: "Test") { executor in
       #expect(await ExecutorFixture.test(executor: executor))
     }
     await PThreadSerialExecutor.withExecutor(name: "Test") { executor in

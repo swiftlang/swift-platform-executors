@@ -33,7 +33,7 @@ import Dispatch
 /// }
 /// ```
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
-public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
+package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   #if canImport(Darwin)
   typealias Selector = KQueueSelector
   #elseif canImport(Glibc)
@@ -130,7 +130,7 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   ///   - name: The name assigned to the executor's background thread.
   ///   - body: A closure that gets access to the task executor for the duration of execution.
   /// - Returns: The value returned by the body closure.
-  public nonisolated(nonsending) static func withExecutor<Return, Failure: Error>(
+  package nonisolated(nonsending) static func withExecutor<Return, Failure: Error>(
     name: String,
     body: (PThreadExecutor) async throws(Failure) -> Return
   ) async throws(Failure) -> Return {
@@ -224,7 +224,7 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     )
   }
 
-  public func enqueue(_ job: consuming ExecutorJob) {
+  package func enqueue(_ job: consuming ExecutorJob) {
     if #available(macOS 26.0, *) {
       job.sequenceNumber =
         self.sequenceNumber.wrappingAdd(
@@ -286,7 +286,7 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     }
   }
 
-  public func isIsolatingCurrentContext() -> Bool? {
+  package func isIsolatingCurrentContext() -> Bool? {
     return self.onExecutor
   }
 
@@ -362,7 +362,7 @@ public final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
 
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
 extension PThreadExecutor: CustomStringConvertible {
-  public var description: String {
+  package var description: String {
     "PThreadExecutor(\(self._threadBoundState.thread?.description ?? "not running"))"
   }
 }

@@ -15,17 +15,17 @@ internal import Synchronization
 
 /// A task executor that distributes work across multiple `PThreadExecutor` instances.
 ///
-/// `PThreadPoolExecutor` provides a multi-threaded execution environment by maintaining a pool of `PThreadExecutor`
+/// `PThreadTaskExecutor` provides a multi-threaded execution environment by maintaining a pool of executor
 /// instances and distributing jobs across them. This design enables parallel execution while leveraging the
 /// optimized single-threaded executors as building blocks.
 ///
 /// ## Usage
 ///
 /// ```swift
-/// // Create pool for parallel processing
-/// let pool = PThreadPoolExecutor(name: "ProcessingPool", poolSize: 4)
+/// // Create executor for parallel processing
+/// let executor = PThreadTaskExecutor(name: "ProcessingPool", poolSize: 4)
 ///
-/// await withTaskExecutorPreference(pool) {
+/// await withTaskExecutorPreference(executor) {
 ///     // Jobs distributed across the pool
 ///     async let result1 = heavyComputation1()
 ///     async let result2 = heavyComputation2()
@@ -35,8 +35,8 @@ internal import Synchronization
 /// }
 /// ```
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
-public final class PThreadPoolExecutor: TaskExecutor {
-  /// The pool's name.
+public final class PThreadTaskExecutor: TaskExecutor {
+  /// The executor's name.
   private let name: String
   /// The pool's executors.
   ///
@@ -46,9 +46,9 @@ public final class PThreadPoolExecutor: TaskExecutor {
   /// The current index for selecting the next executor to run on.
   private let index = Atomic<Int>(0)
 
-  /// Creates a new `PThreadPoolExecutor` with the specified pool size and thread naming.
+  /// Creates a new `PThreadTaskExecutor` with the specified pool size and thread naming.
   ///
-  /// This initializer creates a pool of `PThreadExecutor` instances, each with its own dedicated thread.
+  /// This initializer creates a pool of `PThreadTaskExecutor` instances, each with its own dedicated thread.
   ///
   /// - Parameters:
   ///   - name: The base name for the executor pool. Each thread in the pool will be named `"<name>-<index>"`
@@ -82,7 +82,7 @@ public final class PThreadPoolExecutor: TaskExecutor {
 
   /// Creates a new platform-native pooled task executor.
   ///
-  /// This method creates a pool of task executors backed by dedicated pthreads and ensures proper
+  /// This method creates a pool of executors backed by dedicated pthreads and ensures proper
   /// thread lifecycle management. All executor threads will be automatically stopped and
   /// joined when the body closure completes, ensuring no thread leaks.
   ///
@@ -95,7 +95,7 @@ public final class PThreadPoolExecutor: TaskExecutor {
   public nonisolated(nonsending) static func withExecutor<Return, Failure: Error>(
     name: String,
     poolSize: Int? = nil,
-    body: (PThreadPoolExecutor) async throws(Failure) -> Return
+    body: (PThreadTaskExecutor) async throws(Failure) -> Return
   ) async throws(Failure) -> Return {
     do {
       return try await self._withExecutor(
@@ -115,9 +115,9 @@ public final class PThreadPoolExecutor: TaskExecutor {
     name: String,
     poolSize: Int? = nil,
     taskExecutor: UnownedTaskExecutor?,
-    body: (PThreadPoolExecutor) async throws -> Return
+    body: (PThreadTaskExecutor) async throws -> Return
   ) async rethrows -> Return {
-    let executor = PThreadPoolExecutor(
+    let executor = PThreadTaskExecutor(
       name: name,
       poolSize: poolSize,
       taskExecutor: taskExecutor
@@ -142,7 +142,7 @@ public final class PThreadPoolExecutor: TaskExecutor {
 }
 
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
-extension PThreadPoolExecutor: CustomStringConvertible {
+extension PThreadTaskExecutor: CustomStringConvertible {
   public var description: String {
     "PThreadPoolExecutor(\(self.name))"
   }

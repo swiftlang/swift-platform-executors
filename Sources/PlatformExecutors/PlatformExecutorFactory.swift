@@ -21,25 +21,13 @@ public struct PlatformExecutorFactory: ExecutorFactory {
   ///
   /// - Parameters:
   ///   - name: The base name for the executor.
+  ///   - poolSize: The suggested number internal executors in the pool. Must be greater than 0.
+  ///   Defaults to `nil` which uses a reasonable platform default.
   ///   - body: A closure that gets access to the task executor for the duration of the closure.
   public nonisolated(nonsending) static func withTaskExecutor<Return, Failure: Error>(
     name: String,
-    body: (PlatformTaskExecutor) async throws(Failure) -> Return
-  ) async throws(Failure) -> Return {
-    fatalError()
-  }
-
-  /// Creates a new platform-native pooled task executor.
-  ///
-  /// - Parameters:
-  ///   - name: The base name for the executor.
-  ///   - poolSize: The number internal executors in the pool. Must be greater than 0.
-  ///   If `nil` is passed then the systems available core count will be used. Defaults to `nil`.
-  ///   - body: A closure that gets access to the task executor for the duration of the closure.
-  public nonisolated(nonsending) static func withTaskPoolExecutor<Return, Failure: Error>(
-    name: String,
     poolSize: Int? = nil,
-    body: (PlatformTaskPoolExecutor) async throws(Failure) -> Return
+    body: (PlatformTaskExecutor) async throws(Failure) -> Return
   ) async throws(Failure) -> Return {
     fatalError()
   }
@@ -67,33 +55,16 @@ public struct PlatformExecutorFactory: ExecutorFactory {
   ///
   /// - Parameters:
   ///   - name: The base name for the executor.
+  ///   - poolSize: The suggested number internal executors in the pool. Must be greater than 0.
+  ///   Defaults to `nil` which uses a reasonable platform default.
   ///   - body: A closure that gets access to the task executor for the duration of the closure.
   public nonisolated(nonsending) static func withTaskExecutor<Return, Failure: Error>(
     name: String,
+    poolSize: Int? = nil,
     body: (PlatformTaskExecutor) async throws(Failure) -> Return
   ) async throws(Failure) -> Return {
     let platformExecutor = PlatformTaskExecutor()
     platformExecutor.executor = DispatchTaskExecutor(
-      name: name,
-      taskExecutor: platformExecutor.asUnownedTaskExecutor()
-    )
-    return try await body(platformExecutor)
-  }
-
-  /// Creates a new platform-native pooled task executor.
-  ///
-  /// - Parameters:
-  ///   - name: The base name for the executor.
-  ///   - poolSize: The number internal executors in the pool. Must be greater than 0.
-  ///   If `nil` is passed then the systems available core count will be used. Defaults to `nil`.
-  ///   - body: A closure that gets access to the task executor for the duration of the closure.
-  public nonisolated(nonsending) static func withTaskPoolExecutor<Return, Failure: Error>(
-    name: String,
-    poolSize: Int? = nil,
-    body: (PlatformTaskPoolExecutor) async throws(Failure) -> Return
-  ) async throws(Failure) -> Return {
-    let platformExecutor = PlatformTaskPoolExecutor()
-    platformExecutor.executor = DispatchTaskPoolExecutor(
       name: name,
       taskExecutor: platformExecutor.asUnownedTaskExecutor()
     )
@@ -137,7 +108,7 @@ public struct PlatformExecutorFactory: ExecutorFactory {
     let coreCountEnvironment = ProcessInfo.processInfo
       .environment["SWIFT_PLATFORM_DEFAULT_EXECUTOR_POOL_SIZE"]
     let coreCount = coreCountEnvironment.flatMap { Int($0) } ?? SystemCoreCount.coreCount
-    return PThreadPoolExecutor(
+    return PThreadTaskExecutor(
       name: "global",
       poolSize: coreCount,
       taskExecutor: nil
@@ -148,52 +119,29 @@ public struct PlatformExecutorFactory: ExecutorFactory {
   ///
   /// - Parameters:
   ///   - name: The base name for the executor.
+  ///   - poolSize: The suggested number internal executors in the pool. Must be greater than 0.
+  ///   Defaults to `nil` which uses a reasonable platform default.
   ///   - body: A closure that gets access to the task executor for the duration of the closure.
   public nonisolated(nonsending) static func withTaskExecutor<Return, Failure: Error>(
     name: String,
+    poolSize: Int? = nil,
     body: (PlatformTaskExecutor) async throws(Failure) -> Return
   ) async throws(Failure) -> Return {
     do {
-      let platformExecutor = PlatformTaskExecutor()
-      return try await PThreadExecutor._withExecutor(
-        name: name,
-        taskExecutor: platformExecutor.asUnownedTaskExecutor(),
-        serialExecutor: nil
-      ) { executor in
-        platformExecutor.executor = executor
-        return try await body(platformExecutor)
+      do {
+        let platformExecutor = PlatformTaskExecutor()
+        return try await PThreadTaskExecutor._withExecutor(
+          name: name,
+          poolSize: poolSize,
+          taskExecutor: platformExecutor.asUnownedTaskExecutor()
+        ) { executor in
+          platformExecutor.executor = executor
+          return try await body(platformExecutor)
+        }
+      } catch {
+        // This is the only possible error thrown but somehow the compiler trips up
+        throw error as! Failure
       }
-    } catch {
-      // This is the only possible error thrown but somehow the compiler trips up
-      throw error as! Failure
-    }
-  }
-
-  /// Creates a new platform-native pooled task executor.
-  ///
-  /// - Parameters:
-  ///   - name: The base name for the executor.
-  ///   - poolSize: The number internal executors in the pool. Must be greater than 0.
-  ///   If `nil` is passed then the systems available core count will be used. Defaults to `nil`.
-  ///   - body: A closure that gets access to the task executor for the duration of the closure.
-  public nonisolated(nonsending) static func withTaskPoolExecutor<Return, Failure: Error>(
-    name: String,
-    poolSize: Int? = nil,
-    body: (PlatformTaskPoolExecutor) async throws(Failure) -> Return
-  ) async throws(Failure) -> Return {
-    do {
-      let platformExecutor = PlatformTaskPoolExecutor()
-      return try await PThreadPoolExecutor._withExecutor(
-        name: name,
-        poolSize: poolSize,
-        taskExecutor: platformExecutor.asUnownedTaskExecutor()
-      ) { executor in
-        platformExecutor.executor = executor
-        return try await body(platformExecutor)
-      }
-    } catch {
-      // This is the only possible error thrown but somehow the compiler trips up
-      throw error as! Failure
     }
   }
 

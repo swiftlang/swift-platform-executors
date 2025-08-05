@@ -21,7 +21,8 @@ package final class DispatchTaskExecutor: TaskExecutor, @unchecked Sendable {
   private let taskExecutor: UnownedTaskExecutor
 
   package init(name: String, taskExecutor: UnownedTaskExecutor) {
-    self.queue = DispatchQueue(label: name)
+    // There is no way to set the pool width of a dispatch queue
+    self.queue = DispatchQueue(label: name, attributes: .concurrent)
     self.taskExecutor = taskExecutor
   }
 
