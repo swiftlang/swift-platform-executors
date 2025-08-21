@@ -14,7 +14,7 @@
 @available(macOS 26.0, iOS 26.0, watchOS 26.0, tvOS 26.0, visionOS 26.0, *)
 public final class PlatformTaskExecutor: TaskExecutor {
   #if os(Linux) || os(Android) || os(FreeBSD)
-  typealias Executor = PThreadExecutor
+  typealias Executor = PThreadTaskExecutor
   #elseif canImport(Darwin)
   typealias Executor = DispatchTaskExecutor
   #elseif os(Windows)

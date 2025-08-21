@@ -145,10 +145,10 @@ struct ExecutorFixture {
             print("  - Telling RunLoopExecutor to stop")
             runLoopExecutor.stop()
           }
-          continuation.resume()
           order.withLock {
             $0.append(7)
           }
+          continuation.resume()
         }
 
         serialExecutor.enqueue(mediumJob)  // 3

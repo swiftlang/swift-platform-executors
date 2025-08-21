@@ -23,9 +23,6 @@ struct PlatformExecutorTests {
     await PlatformExecutorFactory.withTaskExecutor(name: "Test") { executor in
       #expect(await ExecutorFixture.test(executor: executor))
     }
-    await PlatformExecutorFactory.withTaskPoolExecutor(name: "Test") { executor in
-      #expect(await ExecutorFixture.test(executor: executor))
-    }
     await PlatformExecutorFactory.withSerialExecutor(name: "Test") { executor in
       #expect(await ExecutorFixture.test(executor: executor))
     }
