@@ -58,10 +58,29 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   private struct MultiThreadedState: ~Copyable {
     /// Indicates if we are running and about to pop more jobs. If this is true then we don't have to wake the selector.
     var pendingJobPop = false
-    /// Indicates if the executor should stop.
-    var shouldStop = false
+    /// The condition variable that gets signalled once the thread is stopped.
+    var stopConditionVariable: ConditionVariable<Bool>? = nil
     /// This is the queue of enqueued jobs that we have to execute in the order they got enqueued.
-    var jobs = NonCopyablePriorityQueue()
+    var jobs: NonCopyablePriorityQueue<UnownedJob> = {
+      guard #available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *) else {
+        return .init(compare: compareJobsByPriorityAndID)
+      }
+      return .init(compare: compareJobsByPriorityAndSequenceNumber)
+    }()
+    /// This is the queue of enqueued jobs for the continuous clock.
+    var continuousClockJobs: NonCopyablePriorityQueue<(ContinuousClock.Instant, UnownedJob)> = {
+      guard #available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *) else {
+        return .init(compare: compareJobsByContinuousClockInstantAndPriorityAndID(lhs:rhs:))
+      }
+      return .init(compare: compareJobsByContinuousClockInstantAndPriorityAndSequenceNumber(lhs:rhs:))
+    }()
+    /// This is the queue of enqueued jobs for the suspending clock.
+    var suspendingClockJobs: NonCopyablePriorityQueue<(SuspendingClock.Instant, UnownedJob)> = {
+      guard #available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *) else {
+        return .init(compare: compareJobsBySuspendingClockInstantAndPriorityAndID(lhs:rhs:))
+      }
+      return .init(compare: compareJobsBySuspendingClockInstantAndPriorityAndSequenceNumber(lhs:rhs:))
+    }()
   }
 
   /// This is the state that is bound to this thread.
@@ -72,6 +91,8 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     fileprivate var tookOverThread: Bool = false
 
     func isOnThread() -> Bool {
+      if self.thread == nil {
+      }
       return self.thread?.isCurrentFunc() ?? false
     }
 
@@ -81,10 +102,14 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
         assert(self.isOnThread())
         yield self._selector
       }
+      _modify {
+        assert(self.isOnThread())
+        yield &self._selector
+      }
     }
 
     /// The jobs that are next in line to be executed.
-    fileprivate var nextExecutedJobs: NonCopyablePriorityQueue {
+    fileprivate var nextExecutedJobs: ContiguousArray<UnownedJob> {
       _read {
         assert(self.isOnThread())
         yield self._nextExecutedJobs
@@ -96,19 +121,19 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     }
 
     /// This method can be called from off thread so we are not asserting here.
-    func wakeupSelector() throws {
+    mutating func wakeupSelector() throws {
       try self._selector.wakeup()
     }
 
     /// The backing storage for the selector.
     ///
     /// This is a force try since there really is no way to handle these errors and this should never fail.
-    let _selector = try! Selector()
+    var _selector = try! Selector()
 
     /// The backing storage of the next executed jobs.
-    fileprivate var _nextExecutedJobs: NonCopyablePriorityQueue
+    fileprivate var _nextExecutedJobs: ContiguousArray<UnownedJob>
 
-    fileprivate init(_nextExecutedJobs: consuming NonCopyablePriorityQueue) {
+    fileprivate init(_nextExecutedJobs: consuming ContiguousArray<UnownedJob>) {
       self._nextExecutedJobs = _nextExecutedJobs
     }
   }
@@ -123,6 +148,12 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
 
   /// The next sequence number of an enqueued jobs.
   private let sequenceNumber = Atomic<UInt64>(0)
+
+  /// The amount of jobs to process in a single executor tick.
+  /// This is a static var since those optimize better
+  private static var jobsBatchSize: Int {
+    4096
+  }
 
   internal var threadDescription: String {
     return self._threadBoundState.thread?.description ?? "not running"
@@ -192,7 +223,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
       do {
         // Block until we've set the thread in the thread bound state
         conditionVariable.wait {
-          !$0
+          return !$0
         } block: {
           _ in
         }
@@ -238,7 +269,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
 
   internal init() {
     self._threadBoundState = .init(
-      _nextExecutedJobs: NonCopyablePriorityQueue()
+      _nextExecutedJobs: ContiguousArray()
     )
   }
 
@@ -264,14 +295,20 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     }
   }
 
-  internal func stop() {
+  internal func stop() -> ConditionVariable<Bool> {
+    let conditionVariable = ConditionVariable(false)
     self.modifyMultiThreadedStateAndWakeUpIfNeeded { state in
-      state.shouldStop = true
+      state.stopConditionVariable = conditionVariable
     }
+    return conditionVariable
   }
 
   internal func shutdown() {
-    self.stop()
+    let stopConditionVariable = self.stop()
+    stopConditionVariable.wait {
+      $0
+    } block: { _ in
+    }
     guard let thread = self._threadBoundState.thread.take() else {
       fatalError("Executor already shutdown")
     }
@@ -338,52 +375,239 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     }
     self.assertOnExecutor()
 
-    // We need to ensure we process all jobs even if a job enqueued another job
+    // This is the outer loop that we use to block on our selector
+    // and check if we should stop
+    var stopConditionVariable: ConditionVariable<Bool>? = nil
+    defer {
+      stopConditionVariable?.signal { $0.toggle() }
+    }
     while true {
-      let shouldStop = self._multiThreadedState.withLock { state in
-        if state.shouldStop {
-          state.shouldStop = false
-          return true
-        }
-        if !state.jobs.queue.isEmpty {
-          // We got some jobs that we should execute. Let's copy them over so we can
-          // give up the lock.
-          assert(self._threadBoundState.nextExecutedJobs.queue.isEmpty)
-          swap(&state.jobs, &self._threadBoundState.nextExecutedJobs)
+      var moreJobsQueued = false
+      var nextContinuousClockDeadline: ContinuousClock.Instant?
+      var nextSuspendingClockDeadline: SuspendingClock.Instant?
+
+      // This is the inner loop that processes one tick at a time. It can run
+      // multiple times without blocking on the selector if there are many jobs
+      // to processes or jobs are enqueued during a tick.
+      while true {
+        (stopConditionVariable, moreJobsQueued, nextContinuousClockDeadline, nextSuspendingClockDeadline) = self
+          ._multiThreadedState.withLock { state in
+            // We were flagged to stop so we need to exit this loop
+            if let stopConditionVariable = state.stopConditionVariable {
+              state.stopConditionVariable = nil
+              return (stopConditionVariable, false, nil, nil)
+            }
+            // We got some jobs that we should execute. Let's copy them over so we can
+            // give up the lock.
+            let (moreJobsQueued, nextContinuousClockDeadline, nextSuspendingClockDeadline) = Self._popJobsLocked(
+              jobs: &state.jobs,
+              continuousClockJobs: &state.continuousClockJobs,
+              suspendingClockJobs: &state.suspendingClockJobs,
+              jobsCopy: &self._threadBoundState.nextExecutedJobs,
+              batchSize: Self.jobsBatchSize
+            )
+
+            if self._threadBoundState.nextExecutedJobs.isEmpty {
+              // We got no jobs to execute so we will block and need to be woken up.
+              assert(moreJobsQueued == false)
+              state.pendingJobPop = false
+            }
+            return (nil, moreJobsQueued, nextContinuousClockDeadline, nextSuspendingClockDeadline)
+          }
+
+        if stopConditionVariable != nil {
+          // We need to stop now and break out of the inner loop
+          break
         }
 
-        if self._threadBoundState.nextExecutedJobs.queue.isEmpty {
-          // We got no jobs to execute so we will block and need to be woken up.
-          state.pendingJobPop = false
+        if self._threadBoundState.nextExecutedJobs.isEmpty {
+          // There are no more jobs to execute so we have to block now
+          break
         }
-        return false
+
+        for job in self._threadBoundState.nextExecutedJobs {
+          runJobSynchronously(job)
+        }
+
+        // Remove all the just executed jobs but keep the capacity.
+        self._threadBoundState.nextExecutedJobs.removeAll(keepingCapacity: true)
       }
 
-      if shouldStop {
-        // We need to stop now
+      if stopConditionVariable != nil {
+        // We need to stop now and need to break out of the outer loop
         break
       }
 
-      // Execute all the jobs that were submitted
-      let didExecuteJobs = !self._threadBoundState.nextExecutedJobs.queue.isEmpty
-
-      while let job = self._threadBoundState.nextExecutedJobs.pop() {
-        runJobSynchronously(job)
-      }
-
-      if didExecuteJobs {
-        // We executed some jobs that might have enqueued new jobs
-        continue
-      }
-
-      try self._threadBoundState.selector.whenReady(
-        strategy: .block
+      let strategy = self.currentSelectorStrategy(
+        moreJobsQueued: moreJobsQueued,
+        nextContinuousClockDeadline: nextContinuousClockDeadline,
+        nextSuspendingClockDeadline: nextSuspendingClockDeadline
       )
 
-      self._multiThreadedState.withLock { $0.pendingJobPop = true }
+      // Let's wait on the selector until an event happens
+      try self._threadBoundState.selector.whenReady(
+        strategy: strategy
+      )
+
+      // Our selector unblocked and we are going to pop some jobs
+      self._multiThreadedState.withLock {
+        $0.pendingJobPop = true
+      }
+    }
+  }
+
+  private static func _popJobsLocked(
+    jobs: inout NonCopyablePriorityQueue<UnownedJob>,
+    continuousClockJobs: inout NonCopyablePriorityQueue<(ContinuousClock.Instant, UnownedJob)>,
+    suspendingClockJobs: inout NonCopyablePriorityQueue<(SuspendingClock.Instant, UnownedJob)>,
+    jobsCopy: inout ContiguousArray<UnownedJob>,
+    batchSize: Int
+  ) -> (Bool, ContinuousClock.Instant?, SuspendingClock.Instant?) {
+    // We expect empty jobsCopy, to put a new batch of tasks into
+    assert(jobsCopy.isEmpty)
+
+    var moreJobsToConsider = !jobs.queue.isEmpty
+    var moreContinuousClockJobsToConsider = !continuousClockJobs.queue.isEmpty
+    var moreSuspendingClockJobsToConsider = !suspendingClockJobs.queue.isEmpty
+
+    guard moreJobsToConsider || moreContinuousClockJobsToConsider || moreSuspendingClockJobsToConsider else {
+      // There are no jobs to consider.
+      return (false, nil, nil)
+    }
+
+    // We only fetch the time one time as this may be expensive and is generally good enough as if we miss anything we will just do a non-blocking select again anyway.
+    let continuousClockNow = ContinuousClock.now
+    let suspendingClockNow = SuspendingClock.now
+    var nextContinuousClockDeadline: ContinuousClock.Instant?
+    var nextSuspendingClockDeadline: SuspendingClock.Instant?
+
+    while moreJobsToConsider || moreContinuousClockJobsToConsider || moreSuspendingClockJobsToConsider {
+      // We pick one job per iteration of the loop.
+      // This prevents one queue starving the other.
+      if moreJobsToConsider, jobsCopy.count < batchSize, let job = jobs.pop() {
+        jobsCopy.append(job)
+      } else {
+        moreJobsToConsider = false
+      }
+
+      if moreContinuousClockJobsToConsider, jobsCopy.count < batchSize, let job = continuousClockJobs.peek() {
+        if continuousClockNow.duration(to: job.0) <= .nanoseconds(0) {
+          _ = continuousClockJobs.pop()
+          jobsCopy.append(job.1)
+        } else {
+          nextContinuousClockDeadline = job.0
+          moreContinuousClockJobsToConsider = false
+        }
+      } else {
+        moreContinuousClockJobsToConsider = false
+      }
+
+      if moreSuspendingClockJobsToConsider, jobsCopy.count < batchSize, let job = suspendingClockJobs.peek() {
+        if suspendingClockNow.duration(to: job.0) <= .nanoseconds(0) {
+          _ = suspendingClockJobs.pop()
+          jobsCopy.append(job.1)
+        } else {
+          nextSuspendingClockDeadline = job.0
+          moreSuspendingClockJobsToConsider = false
+        }
+      } else {
+        moreSuspendingClockJobsToConsider = false
+      }
+    }
+
+    return (!jobs.queue.isEmpty, nextContinuousClockDeadline, nextSuspendingClockDeadline)
+  }
+
+  private func currentSelectorStrategy(
+    moreJobsQueued: Bool,
+    nextContinuousClockDeadline: ContinuousClock.Instant?,
+    nextSuspendingClockDeadline: SuspendingClock.Instant?,
+  ) -> SelectorStrategy {
+    guard !moreJobsQueued else {
+      // There are more jobs queued without a deadline so we just need to select all events again
+      return .now
+    }
+
+    let continuousClockNow = ContinuousClock.now
+    let suspendingClockNow = SuspendingClock.now
+    let nextContinuousClockReady = nextContinuousClockDeadline.flatMap { continuousClockNow.duration(to: $0) }
+    let nextSuspendingClockReady = nextSuspendingClockDeadline.flatMap { suspendingClockNow.duration(to: $0) }
+
+    switch (nextContinuousClockReady, nextSuspendingClockReady) {
+    case (.some(let nextContinuousClockReady), .some(let nextSuspendingClockReady)):
+      guard nextContinuousClockReady <= .nanoseconds(0) || nextSuspendingClockReady <= .nanoseconds(0) else {
+        return .blockUntilTimeout(
+          continuousClockInstant: nextContinuousClockDeadline,
+          suspendingClockInstant: nextSuspendingClockDeadline
+        )
+      }
+      // Something is ready to be processed just do a non-blocking select of events.
+      return .now
+    case (.some(let nextContinuousClockReady), .none):
+      guard nextContinuousClockReady <= .nanoseconds(0) else {
+        return .blockUntilTimeout(
+          continuousClockInstant: nextContinuousClockDeadline,
+          suspendingClockInstant: nextSuspendingClockDeadline
+        )
+      }
+      // Something is ready to be processed just do a non-blocking select of events.
+      return .now
+    case (.none, .some(let nextSuspendingClockReady)):
+      guard nextSuspendingClockReady <= .nanoseconds(0) else {
+        return .blockUntilTimeout(
+          continuousClockInstant: nextContinuousClockDeadline,
+          suspendingClockInstant: nextSuspendingClockDeadline
+        )
+      }
+      // Something is ready to be processed just do a non-blocking select of events.
+      return .now
+    case (.none, .none):
+      // No jobs to handle so just block.
+      return .block
     }
   }
 }
+
+#if !canImport(Darwin)
+@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+extension PThreadExecutor: SchedulingExecutor {
+  package var asSchedulingExecutor: SchedulingExecutor? {
+    return self
+  }
+
+  package func enqueue<C: Clock>(
+    _ job: consuming ExecutorJob,
+    at instant: C.Instant,
+    tolerance: C.Duration?,
+    clock: C
+  ) {
+    job.sequenceNumber =
+      self.sequenceNumber.wrappingAdd(
+        1,
+        ordering: .relaxed
+      ).newValue
+    switch instant {
+    case let instant as ContinuousClock.Instant:
+      let unownedJob = UnownedJob(job)
+      self.modifyMultiThreadedStateAndWakeUpIfNeeded { state in
+        state.continuousClockJobs.push((instant, unownedJob))
+      }
+    case let instant as SuspendingClock.Instant:
+      let unownedJob = UnownedJob(job)
+      self.modifyMultiThreadedStateAndWakeUpIfNeeded { state in
+        state.suspendingClockJobs.push((instant, unownedJob))
+      }
+    default:
+      clock.enqueue(
+        job,
+        on: self,
+        at: instant,
+        tolerance: tolerance
+      )
+    }
+  }
+}
+#endif
 
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
 extension PThreadExecutor: CustomStringConvertible {
@@ -393,22 +617,22 @@ extension PThreadExecutor: CustomStringConvertible {
 }
 
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
-private struct NonCopyablePriorityQueue: ~Copyable {
-  var queue: PriorityQueue<UnownedJob>
+private struct NonCopyablePriorityQueue<T>: ~Copyable {
+  var queue: PriorityQueue<T>
 
-  init() {
-    if #available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *) {
-      self.queue = .init(compare: compareJobsByPriorityAndSequenceNumber)
-    } else {
-      self.queue = .init(compare: compareJobsByPriorityAndID)
-    }
+  init(compare: @escaping (borrowing T, borrowing T) -> Bool) {
+    self.queue = .init(compare: compare)
   }
 
-  mutating func pop() -> UnownedJob? {
+  mutating func pop() -> T? {
     self.queue.pop()
   }
 
-  mutating func push(_ newElement: UnownedJob) {
+  func peek() -> T? {
+    self.queue.peek()
+  }
+
+  mutating func push(_ newElement: T) {
     self.queue.push(newElement)
   }
 }

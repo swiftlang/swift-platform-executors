@@ -117,6 +117,64 @@ internal func retryingSyscall<T: FixedWidthInteger>(
   }
 }
 
+// Sorry, we really try hard to not use underscored attributes. In this case
+// however we seem to break the inlining threshold which makes a system call
+// take twice the time, ie. we need this exception.
+@inline(__always)
+@discardableResult
+internal func syscallForbiddingEINVAL<T: FixedWidthInteger>(
+  where function: String = #function,
+  _ body: () throws -> T
+)
+  throws -> IOResult<T>
+{
+  while true {
+    let res = try body()
+    if res == -1 {
+      #if os(Windows)
+      var err: CInt = 0
+      _get_errno(&err)
+      #else
+      let err = errno
+      #endif
+      switch err {
+      case EINTR:
+        continue
+      case EWOULDBLOCK:
+        return .wouldBlock(0)
+      default:
+        preconditionIsNotUnacceptableErrnoForbiddingEINVAL(err: err, where: function)
+        throw IOError(errnoCode: err, reason: function)
+      }
+    }
+    return .processed(res)
+  }
+}
+
+@inline(never)
+func close(descriptor: CInt) throws {
+  let res = close(descriptor)
+  if res == -1 {
+    #if os(Windows)
+    var err: CInt = 0
+    _get_errno(&err)
+    #else
+    let err = errno
+    #endif
+
+    // There is really nothing "good" we can do when EINTR was reported on close.
+    // So just ignore it and "assume" everything is fine == we closed the file descriptor.
+    //
+    // For more details see:
+    //     - https://bugs.chromium.org/p/chromium/issues/detail?id=269623
+    //     - https://lwn.net/Articles/576478/
+    if err != EINTR {
+      preconditionIsNotUnacceptableErrnoOnClose(err: err, where: #function)
+      throw IOError(errnoCode: err, reason: "close")
+    }
+  }
+}
+
 private func preconditionIsNotUnacceptableErrno(err: CInt, where function: String) {
   // strerror is documented to return "Unknown error: ..." for illegal value so it won't ever fail
   #if os(Windows)
@@ -149,6 +207,64 @@ private func isUnacceptableErrno(_ code: Int32) -> Bool {
   default:
     return false
   }
+  #endif
+}
+
+private func preconditionIsNotUnacceptableErrnoForbiddingEINVAL(err: CInt, where function: String) {
+  // strerror is documented to return "Unknown error: ..." for illegal value so it won't ever fail
+  #if os(Windows)
+  precondition(
+    !isUnacceptableErrnoForbiddingEINVAL(err),
+    "unacceptable errno \(err) \(strerror(err)) in \(function))"
+  )
+  #else
+  precondition(
+    !isUnacceptableErrnoForbiddingEINVAL(err),
+    "unacceptable errno \(err) \(String(cString: strerror(err)!)) in \(function))"
+  )
+  #endif
+}
+
+internal func isUnacceptableErrnoForbiddingEINVAL(_ code: CInt) -> Bool {
+  // We treat read() and pread() differently since we also want to catch EINVAL.
+  #if canImport(Darwin) && !os(macOS)
+  switch code {
+  case EFAULT, EINVAL:
+    return true
+  default:
+    return false
+  }
+  #else
+  switch code {
+  case EFAULT, EBADF, EINVAL:
+    return true
+  default:
+    return false
+  }
+  #endif
+}
+
+@inlinable
+func isUnacceptableErrnoOnClose(_ code: CInt) -> Bool {
+  // We treat close() differently to all other FDs: we still want to catch EBADF here.
+  switch code {
+  case EFAULT, EBADF:
+    return true
+  default:
+    return false
+  }
+}
+
+@inlinable
+internal func preconditionIsNotUnacceptableErrnoOnClose(err: CInt, where function: String) {
+  // strerror is documented to return "Unknown error: ..." for illegal value so it won't ever fail
+  #if os(Windows)
+  precondition(!isUnacceptableErrnoOnClose(err), "unacceptable errno \(err) \(strerror(err)) in \(function))")
+  #else
+  precondition(
+    !isUnacceptableErrnoOnClose(err),
+    "unacceptable errno \(err) \(String(cString: strerror(err)!)) in \(function))"
+  )
   #endif
 }
 #endif

@@ -16,6 +16,7 @@
 #ifdef __linux__
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
+#include <sys/timerfd.h>
 #include <pthread.h>
 #include <errno.h>
 

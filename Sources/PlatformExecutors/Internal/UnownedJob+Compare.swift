@@ -41,6 +41,54 @@ func compareJobsByPriorityAndID(
   return lhs.priority > rhs.priority
 }
 
+@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+func compareJobsByContinuousClockInstantAndPriorityAndSequenceNumber(
+  lhs: (ContinuousClock.Instant, UnownedJob),
+  rhs: (ContinuousClock.Instant, UnownedJob),
+) -> Bool {
+  guard lhs.0 == rhs.0 else {
+    return lhs.0 < rhs.0
+  }
+
+  return compareJobsByPriorityAndSequenceNumber(lhs: lhs.1, rhs: rhs.1)
+}
+
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+func compareJobsByContinuousClockInstantAndPriorityAndID(
+  lhs: (ContinuousClock.Instant, UnownedJob),
+  rhs: (ContinuousClock.Instant, UnownedJob),
+) -> Bool {
+  guard lhs.0 == rhs.0 else {
+    return lhs.0 < rhs.0
+  }
+
+  return compareJobsByPriorityAndID(lhs: lhs.1, rhs: rhs.1)
+}
+
+@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+func compareJobsBySuspendingClockInstantAndPriorityAndSequenceNumber(
+  lhs: (SuspendingClock.Instant, UnownedJob),
+  rhs: (SuspendingClock.Instant, UnownedJob),
+) -> Bool {
+  guard lhs.0 == rhs.0 else {
+    return lhs.0 < rhs.0
+  }
+
+  return compareJobsByPriorityAndSequenceNumber(lhs: lhs.1, rhs: rhs.1)
+}
+
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+func compareJobsBySuspendingClockInstantAndPriorityAndID(
+  lhs: (SuspendingClock.Instant, UnownedJob),
+  rhs: (SuspendingClock.Instant, UnownedJob),
+) -> Bool {
+  guard lhs.0 == rhs.0 else {
+    return lhs.0 < rhs.0
+  }
+
+  return compareJobsByPriorityAndID(lhs: lhs.1, rhs: rhs.1)
+}
+
 /// This is a method from the Concurrency ABI that we are using for fallback job ordering on older deployment
 /// targets
 @_silgen_name("swift_task_getJobTaskId")

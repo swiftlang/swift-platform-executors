@@ -28,10 +28,12 @@ struct Example {
     // Default executor
     await self.run(executor: nil)
     await self.runGroup(executor: nil)
+    await self.runSleeps(executor: nil)
 
     // Platform executors
     await PlatformExecutorFactory.withTaskExecutor(name: "PlatformTask") { executor in
       await self.run(executor: executor)
+      await self.runSleeps(executor: executor)
     }
     await PlatformExecutorFactory.withSerialExecutor(name: "PlatformSerial") { executor in
       await Run(executor: executor).run()
@@ -52,12 +54,14 @@ struct Example {
     ).run()
     await self.run(executor: DispatchGlobalTaskExecutor())
     await self.runGroup(executor: DispatchGlobalTaskExecutor())
+    await self.runSleeps(executor: DispatchGlobalTaskExecutor())
     #endif
 
     // PThread based executors
     #if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
     await PThreadExecutor.withExecutor(name: "PThreadTaskExecutor") { executor in
       await self.run(executor: executor)
+      await self.runSleeps(executor: executor)
     }
     await PThreadSerialExecutor.withExecutor(name: "PThreadSerial") { executor in
       await Run(executor: executor).run()
@@ -109,6 +113,25 @@ struct Example {
 
     print(
       "Executor \(executor.debugDescription) took \(duration) seconds for \(iterations) iterations with \(childTasks) child tasks"
+    )
+  }
+
+  @concurrent
+  static func runSleeps(
+    executor: TaskExecutor?,
+    iterations: Int = 100000
+  ) async {
+    let duration = await ContinuousClock().measure {
+      await withTaskExecutorPreference(executor) {
+        for _ in 0..<iterations {
+          try! await ContinuousClock().sleep(for: .milliseconds(10))
+          try! await SuspendingClock().sleep(for: .milliseconds(10))
+        }
+      }
+    }
+
+    print(
+      "Executor \(executor.debugDescription) took \(duration) seconds for \(iterations) iterations of sleeping"
     )
   }
 }

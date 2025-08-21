@@ -612,7 +612,7 @@ public final class Win32EventLoopExecutor: SerialExecutor, RunLoopExecutor, @unc
   #endif  // canImport(WinSDK)
 
   /// Return `self` as a `SchedulingExecutor`.
-  public var asSchedulable: SchedulingExecutor? {
+  public var asSchedulingExecutor: SchedulingExecutor? {
     return self
   }
 }
@@ -830,7 +830,7 @@ public final class Win32ThreadPoolExecutor: TaskExecutor, @unchecked Sendable {
   }
 
   /// Return `self` as a `SchedulingExecutor`.
-  public var asSchedulable: SchedulingExecutor? {
+  public var asSchedulingExecutor: SchedulingExecutor? {
     return self
   }
 }

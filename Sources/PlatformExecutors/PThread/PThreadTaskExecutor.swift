@@ -141,6 +141,23 @@ public final class PThreadTaskExecutor: TaskExecutor {
   }
 }
 
+#if !canImport(Darwin)
+extension PThreadTaskExecutor: SchedulingExecutor {
+  public var asSchedulingExecutor: SchedulingExecutor? {
+    return self
+  }
+
+  public func enqueue<C: Clock>(
+    _ job: consuming ExecutorJob,
+    at instant: C.Instant,
+    tolerance: C.Duration?,
+    clock: C
+  ) {
+    self.next().enqueue(job, at: instant, tolerance: tolerance, clock: clock)
+  }
+}
+#endif
+
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
 extension PThreadTaskExecutor: CustomStringConvertible {
   public var description: String {

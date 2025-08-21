@@ -104,7 +104,6 @@ struct PriorityQueue<T> {
   ///
   /// Returns: The next item in the queue, following the comparison
   ///          rule.
-  ///
   mutating func pop() -> T? {
     if storage.isEmpty {
       return nil
@@ -115,6 +114,18 @@ struct PriorityQueue<T> {
       downHeap(ndx: 0)
     }
     return result
+  }
+
+  /// Peek the highest priority item from the queue.
+  ///
+  /// If the comparison function is `>`, this will return the largest
+  /// item in the queue.  If the comparison function is `<`, it will
+  /// return the smallest.
+  ///
+  /// Returns: The next item in the queue, following the comparison
+  ///          rule.
+  func peek() -> T? {
+    return storage.first
   }
 
   /// Fix the heap condition by iterating upwards.

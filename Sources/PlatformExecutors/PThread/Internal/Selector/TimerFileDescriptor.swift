@@ -23,18 +23,39 @@
 //
 //===----------------------------------------------------------------------===//
 
-/// The strategy used for the `Selector`.
-@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
-enum SelectorStrategy {
-  /// Block until there is some IO ready to be processed or the `Selector` is explicitly woken up.
-  case block
+#if canImport(Glibc)
+import Glibc
+import CPlatformExecutors
 
-  /// Block until one of the clocks is ready
-  case blockUntilTimeout(
-    continuousClockInstant: ContinuousClock.Instant?,
-    suspendingClockInstant: SuspendingClock.Instant?
-  )
+internal enum TimerFileDescriptor {
+  internal static let TFD_CLOEXEC = CPlatformExecutors.TFD_CLOEXEC
+  internal static let TFD_NONBLOCK = CPlatformExecutors.TFD_NONBLOCK
 
-  /// Try to select all ready IO at this point in time without blocking at all.
-  case now
+  internal static func timerfd_settime(
+    fd: CInt,
+    flags: CInt,
+    newValue: UnsafePointer<itimerspec>,
+    oldValue: UnsafeMutablePointer<itimerspec>?
+  ) throws {
+    _ = try retryingSyscall(blocking: false) {
+      CPlatformExecutors.timerfd_settime(fd, flags, newValue, oldValue)
+    }
+  }
+
+  internal static func timerfd_create(clockId: CInt, flags: CInt) throws -> CInt {
+    try retryingSyscall(blocking: false) {
+      CPlatformExecutors.timerfd_create(clockId, flags)
+    }.result
+  }
+  internal static func timerfd_read(
+    descriptor: CInt,
+    pointer: UnsafeMutableRawPointer,
+    size: size_t
+  ) throws -> IOResult<ssize_t> {
+    try syscallForbiddingEINVAL {
+      read(descriptor, pointer, size)
+    }
+  }
 }
+
+#endif

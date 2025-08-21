@@ -26,7 +26,7 @@
 /// mainExecutor.stop()
 /// ```
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
-package final class PThreadMainExecutor: MainExecutor, @unchecked Sendable {
+package final class PThreadMainExecutor: SerialExecutor, @unchecked Sendable {
   private let pThreadExecutor: PThreadExecutor!
 
   /// Creates a new `PThreadMainExecutor` that takes control of the current thread.
@@ -46,9 +46,29 @@ package final class PThreadMainExecutor: MainExecutor, @unchecked Sendable {
   }
 
   package func stop() {
-    self.pThreadExecutor.stop()
+    // We are not waiting on the condition variable since it would result in a
+    // dead lock due to us taking over the thread previously.
+    _ = self.pThreadExecutor.stop()
   }
 }
+
+#if !canImport(Darwin)
+extension PThreadMainExecutor: MainExecutor {}
+extension PThreadMainExecutor: SchedulingExecutor {
+  package var asSchedulingExecutor: SchedulingExecutor? {
+    return self
+  }
+
+  package func enqueue<C: Clock>(
+    _ job: consuming ExecutorJob,
+    at instant: C.Instant,
+    tolerance: C.Duration?,
+    clock: C
+  ) {
+    self.pThreadExecutor.enqueue(job, at: instant, tolerance: tolerance, clock: clock)
+  }
+}
+#endif
 
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
 extension PThreadMainExecutor: CustomStringConvertible {
