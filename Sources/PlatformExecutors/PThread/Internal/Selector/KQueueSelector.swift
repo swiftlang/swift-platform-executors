@@ -39,7 +39,7 @@ struct KQueueSelector {
 
   @inline(never)
   fileprivate static func kqueue() throws -> CInt {
-    return try syscall(blocking: false) {
+    return try retryingSyscall(blocking: false) {
       Darwin.kqueue()
     }.result
   }
@@ -54,7 +54,7 @@ struct KQueueSelector {
     nevents: CInt,
     timeout: UnsafePointer<Darwin.timespec>?
   ) throws -> CInt {
-    return try syscall(blocking: false) {
+    return try retryingSyscall(blocking: false) {
       sysKevent(kq, changelist, nchanges, eventlist, nevents, timeout)
     }.result
   }

@@ -62,7 +62,7 @@ struct EpollSelector {
 
   @inline(never)
   internal static func eventfd_write(fd: CInt, value: UInt64) throws -> CInt {
-    return try syscall(blocking: false) {
+    return try retryingSyscall(blocking: false) {
       CPlatformExecutors.eventfd_write(fd, value)
     }.result
   }
@@ -102,7 +102,7 @@ internal enum Epoll {
 
   @inline(never)
   internal static func epoll_create(size: CInt) throws -> CInt {
-    return try syscall(blocking: false) {
+    return try retryingSyscall(blocking: false) {
       CPlatformExecutors.epoll_create(size)
     }.result
   }
@@ -115,7 +115,7 @@ internal enum Epoll {
     fd: CInt,
     event: UnsafeMutablePointer<epoll_event>
   ) throws -> CInt {
-    return try syscall(blocking: false) {
+    return try retryingSyscall(blocking: false) {
       CPlatformExecutors.epoll_ctl(epfd, op, fd, event)
     }.result
   }
@@ -127,7 +127,7 @@ internal enum Epoll {
     maxevents: CInt,
     timeout: CInt
   ) throws -> CInt {
-    return try syscall(blocking: false) {
+    return try retryingSyscall(blocking: false) {
       CPlatformExecutors.epoll_wait(epfd, events, maxevents, timeout)
     }.result
   }
@@ -140,21 +140,21 @@ private enum EventFileDescriptor {
 
   @inline(never)
   fileprivate static func eventfd_read(fd: CInt, value: UnsafeMutablePointer<UInt64>) throws -> CInt {
-    return try syscall(blocking: false) {
+    return try retryingSyscall(blocking: false) {
       CPlatformExecutors.eventfd_read(fd, value)
     }.result
   }
 
   @inline(never)
   internal static func eventfd_write(fd: CInt, value: UInt64) throws -> CInt {
-    return try syscall(blocking: false) {
+    return try retryingSyscall(blocking: false) {
       CPlatformExecutors.eventfd_write(fd, value)
     }.result
   }
 
   @inline(never)
   fileprivate static func makeEventFileDescriptor(initval: CUnsignedInt, flags: CInt) throws -> CInt {
-    return try syscall(blocking: false) {
+    return try retryingSyscall(blocking: false) {
       // Note: Please do _not_ remove the `numericCast`, this is to allow compilation in Ubuntu 14.04 and
       // other Linux distros which ship a glibc from before this commit:
       // https://sourceware.org/git/?p=glibc.git;a=commitdiff;h=69eb9a183c19e8739065e430758e4d3a2c5e4f1a

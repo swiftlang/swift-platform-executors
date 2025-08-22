@@ -90,7 +90,7 @@ enum SystemCoreCount {
   }
 
   private static func firstLineOfFile(path: String) throws -> String {
-    let fd = try syscall(blocking: false) {
+    let fd = try retryingSyscall(blocking: false) {
       open(path, O_RDONLY)
     }.result
     guard fd != -1 else {
@@ -99,7 +99,7 @@ enum SystemCoreCount {
 
     let result = Result {
       var buffer = [UInt8](repeating: 0, count: 4096)
-      let bytesRead = try syscall(blocking: false) {
+      let bytesRead = try retryingSyscall(blocking: false) {
         read(fd, &buffer, buffer.count)
       }.result
       guard bytesRead > 0 else {
@@ -107,26 +107,22 @@ enum SystemCoreCount {
       }
 
       let content = String(decoding: buffer[0..<Int(bytesRead)], as: UTF8.self)
-
-      guard let newlineIndex = content.firstIndex(of: "\n") else {
-        // Manual trimming of whitespace and newlines
-        var trimmed = content
-        while trimmed.last?.isWhitespace == true || trimmed.last?.isNewline == true {
-          trimmed.removeLast()
-        }
-        while trimmed.first?.isWhitespace == true || trimmed.first?.isNewline == true {
-          trimmed.removeFirst()
-        }
-        return trimmed
-      }
-      return String(content[..<newlineIndex])
+      return trim(content)
     }
 
-    try syscall(blocking: false) {
+    try retryingSyscall(blocking: false) {
       close(fd)
     }
 
     return try result.get()
+  }
+
+  private static func trim(_ s: String) -> String {
+    guard let first = s.firstIndex(where: { !$0.isWhitespace && !$0.isNewline }) else {
+      return String()
+    } 
+    let last = s.lastIndex(where: { !$0.isWhitespace && !$0.isNewline })! 
+    return String(s[first...last])
   }
 
   private struct SystemError: Error {}

@@ -76,7 +76,7 @@ struct IOError: Error, CustomStringConvertible {
 
 @inline(__always)
 @discardableResult
-internal func syscall<T: FixedWidthInteger>(
+internal func retryingSyscall<T: FixedWidthInteger>(
   blocking: Bool,
   where function: String = #function,
   _ body: () throws -> T
