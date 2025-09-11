@@ -606,14 +606,14 @@ public final class Win32EventLoopExecutor: SerialExecutor, RunLoopExecutor, @unc
   }
   #endif  // canImport(WinSDK)
 
-  /// Return `self` as a `SchedulableExecutor`.
-  public var asSchedulable: SchedulableExecutor? {
+  /// Return `self` as a `SchedulingExecutor`.
+  public var asSchedulable: SchedulingExecutor? {
     return self
   }
 }
 
 @available(macOS 26.0, *)
-extension Win32EventLoopExecutor: SchedulableExecutor {
+extension Win32EventLoopExecutor: SchedulingExecutor {
 
   public func enqueue<C: Clock>(
     _ job: consuming ExecutorJob,
@@ -623,10 +623,18 @@ extension Win32EventLoopExecutor: SchedulableExecutor {
   ) {
     #if canImport(WinSDK)
     let queue: WaitQueue
-    if clock.traits.contains(.continuous) {
+    if let _ = clock as? ContinuousClock {
       queue = .continuous
-    } else {
+    } else if let _ = clock as? SuspendingClock {
       queue = .suspending
+    } else {
+      clock.enqueue(
+        job,
+        on: self,
+        at: clock.now.advanced(by: delay),
+        tolerance: tolerance
+      )
+      return
     }
 
     var now: UInt64 = 0
@@ -637,12 +645,12 @@ extension Win32EventLoopExecutor: SchedulableExecutor {
       unsafe QueryInterruptTimePrecise(&now)
     }
 
-    let delayAsDuration = clock.convert(from: delay)!
+    let delayAsDuration = delay as! Duration
     let (delaySecs, delayAttos) = delayAsDuration.components
     let delay100ns = max(delaySecs * 10_000_000 + delayAttos / 100_000_000_000, 0)
     let tolerance100ns: Int64
     if let tolerance {
-      let toleranceAsDuration = clock.convert(from: tolerance)!
+      let toleranceAsDuration = tolerance as! Duration
       let (toleranceSecs, toleranceAttos) = toleranceAsDuration.components
       tolerance100ns = max(
         toleranceSecs * 10_000_000
@@ -816,8 +824,8 @@ public final class Win32ThreadPoolExecutor: TaskExecutor, @unchecked Sendable {
     #endif
   }
 
-  /// Return `self` as a `SchedulableExecutor`.
-  public var asSchedulable: SchedulableExecutor? {
+  /// Return `self` as a `SchedulingExecutor`.
+  public var asSchedulable: SchedulingExecutor? {
     return self
   }
 }
@@ -848,7 +856,7 @@ private func _runJobFromTimerCallback(
 #endif  // canImport(WinSDK)
 
 @available(macOS 26.0, *)
-extension Win32ThreadPoolExecutor: SchedulableExecutor {
+extension Win32ThreadPoolExecutor: SchedulingExecutor {
 
   public func enqueue<C: Clock>(
     _ job: consuming ExecutorJob,
@@ -857,17 +865,18 @@ extension Win32ThreadPoolExecutor: SchedulableExecutor {
     clock: C
   ) {
     #if canImport(WinSDK)
-    let delayAsDuration = clock.convert(from: delay)!
-    let (delaySecs, delayAttos) = delayAsDuration.components
-    let delay100ns = max(delaySecs * 10_000_000 + delayAttos / 100_000_000_000, 0)
-
     var fireTime: FILETIME
 
     // The thread pool timers can either do a suspending delay (that is, the
     // time spent asleep does not count), *or* an absolute time, so to do
     // a delay from a continuous clock, we calculate the expected fire time
     // from the delay and the current time.
-    if clock.traits.contains(.continuous) {
+    let delay100ns: Int64
+    if let _ = clock as? ContinuousClock {
+      let continuousDuration = delay as! Duration
+      let (delaySecs, delayAttos) = continuousDuration.components
+      delay100ns = max(delaySecs * 10_000_000 + delayAttos / 100_000_000_000, 0)
+
       var now = FILETIME(dwLowDateTime: 0, dwHighDateTime: 0)
       unsafe GetSystemTimePreciseAsFileTime(&now)
 
@@ -880,13 +889,25 @@ extension Win32ThreadPoolExecutor: SchedulableExecutor {
         dwHighDateTime:
           DWORD(truncatingIfNeeded: target100ns >> 32)
       )
-    } else {
+    } else if let _ = clock as? SuspendingClock {
+      let suspendingDuration = delay as! Duration
+      let (delaySecs, delayAttos) = suspendingDuration.components
+      delay100ns = max(delaySecs * 10_000_000 + delayAttos / 100_000_000_000, 0)
+
       fireTime = FILETIME(
         dwLowDateTime:
           DWORD(truncatingIfNeeded: -delay100ns),
         dwHighDateTime:
           DWORD(truncatingIfNeeded: -delay100ns >> 32)
       )
+    } else {
+      clock.enqueue(
+        job,
+        on: self,
+        at: clock.now.advanced(by: delay),
+        tolerance: tolerance
+      )
+      return
     }
 
     unsafe job.win32ThreadPoolExecutor = self.asUnownedTaskExecutor()
@@ -911,7 +932,14 @@ extension Win32ThreadPoolExecutor: SchedulableExecutor {
 
     let msWindowLength: DWORD
     if let tolerance {
-      let toleranceAsDuration = clock.convert(from: tolerance)!
+      let toleranceAsDuration: Duration
+      if let _ = clock as? ContinuousClock {
+        toleranceAsDuration = tolerance as! Duration
+      } else if let _ = clock as? SuspendingClock {
+        toleranceAsDuration = tolerance as! Duration
+      } else {
+        fatalError("Unknown clock - we shouldn't get here")
+      }
       let (toleranceSecs, toleranceAttos) = toleranceAsDuration.components
       msWindowLength =
         DWORD(toleranceSecs * 1000)
