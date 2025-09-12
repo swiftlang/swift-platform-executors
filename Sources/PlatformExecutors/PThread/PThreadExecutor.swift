@@ -238,7 +238,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   }
 
   package func enqueue(_ job: consuming ExecutorJob) {
-    if #available(macOS 26.0, *) {
+    if #available(macOS 9999, *) {
       job.sequenceNumber =
         self.sequenceNumber.wrappingAdd(
           1,
@@ -385,7 +385,7 @@ private struct NonCopyablePriorityQueue: ~Copyable {
   var queue: PriorityQueue<UnownedJob>
 
   init() {
-    if #available(macOS 26.0, iOS 26.0, watchOS 26.0, tvOS 26.0, visionOS 26.0, *) {
+    if #available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *) {
       self.queue = .init(compare: compareJobsByPriorityAndSequenceNumber)
     } else {
       self.queue = .init(compare: compareJobsByPriorityAndID)

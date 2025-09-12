@@ -22,7 +22,7 @@ private let dispatchAsyncSwiftJobFunc: (@convention(c) (DispatchQueue, UnsafeMut
   return unsafeBitCast(symbol, to: (@convention(c) (DispatchQueue, UnsafeMutableRawPointer, UInt32) -> Void).self)
 }()
 
-@available(macOS 26.0, iOS 26.0, watchOS 26.0, tvOS 26.0, visionOS 26.0, *)
+@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
 private let _enqueueJobOnTaskExecutor: @Sendable (DispatchQueue, UnownedJob, UnownedTaskExecutor) -> Void = {
   guard let dispatchAsyncSwiftJobFunc else {
     // We can't find the `dispatch_async_swift_job` method so let's fallback
@@ -45,7 +45,7 @@ private let _enqueueJobOnTaskExecutor: @Sendable (DispatchQueue, UnownedJob, Uno
   }
 }()
 
-@available(macOS 26.0, iOS 26.0, watchOS 26.0, tvOS 26.0, visionOS 26.0, *)
+@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
 private let _enqueueJobOnSerialExecutor: @Sendable (DispatchQueue, UnownedJob, UnownedSerialExecutor) -> Void = {
   guard let dispatchAsyncSwiftJobFunc else {
     // We can't find the `dispatch_async_swift_job` method so let's fallback
@@ -85,13 +85,13 @@ private let globalQueues:
   )
 
 // Convert job priority to dispatch QoS class
-@available(macOS 26.0, iOS 26.0, watchOS 26.0, tvOS 26.0, visionOS 26.0, *)
+@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
 private func qosClassForPriority(_ priority: JobPriority) -> DispatchQoS.QoSClass {
   DispatchQoS.QoSClass(rawValue: .init(UInt32(priority.rawValue))) ?? .default
 }
 
 // Get cached global queue for priority with O(1) tuple access
-@available(macOS 26.0, iOS 26.0, watchOS 26.0, tvOS 26.0, visionOS 26.0, *)
+@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
 private func getGlobalQueue(for priority: JobPriority) -> DispatchQueue {
   switch qosClassForPriority(priority) {
   case .userInteractive:
@@ -111,12 +111,12 @@ private func getGlobalQueue(for priority: JobPriority) -> DispatchQueue {
 
 // MARK: - Public Runtime Methods
 
-@available(macOS 26.0, iOS 26.0, watchOS 26.0, tvOS 26.0, visionOS 26.0, *)
+@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
 internal func _dispatchMain() -> Never {
   CPlatformExecutors_dispatchMain()
 }
 
-@available(macOS 26.0, iOS 26.0, watchOS 26.0, tvOS 26.0, visionOS 26.0, *)
+@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
 internal func _dispatchEnqueueMain(
   _ job: UnownedJob,
   serialExecutor: UnownedSerialExecutor
@@ -124,12 +124,12 @@ internal func _dispatchEnqueueMain(
   _enqueueJobOnSerialExecutor(DispatchQueue.main, job, serialExecutor)
 }
 
-@available(macOS 26.0, iOS 26.0, watchOS 26.0, tvOS 26.0, visionOS 26.0, *)
+@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
 internal func _dispatchAssertMainQueue() {
   dispatchPrecondition(condition: .onQueue(.main))
 }
 
-@available(macOS 26.0, iOS 26.0, watchOS 26.0, tvOS 26.0, visionOS 26.0, *)
+@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
 internal func _dispatchEnqueueGlobal(_ job: UnownedJob, taskExecutor: UnownedTaskExecutor) {
   _enqueueJobOnTaskExecutor(getGlobalQueue(for: job.priority), job, taskExecutor)
 }

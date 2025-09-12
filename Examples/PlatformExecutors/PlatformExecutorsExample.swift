@@ -13,11 +13,11 @@
 import PlatformExecutors
 import Dispatch
 
-@available(macOS 26, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
 typealias DefaultExecutorFactory = PlatformExecutorFactory
 
 @main
-@available(macOS 26, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
 struct Example {
   static func main() async throws {
     print("Starting executor example")
@@ -110,7 +110,7 @@ struct Example {
   }
 }
 
-@available(macOS 26, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
 actor Run {
   nonisolated var unownedExecutor: UnownedSerialExecutor {
     self.executor.asUnownedSerialExecutor()

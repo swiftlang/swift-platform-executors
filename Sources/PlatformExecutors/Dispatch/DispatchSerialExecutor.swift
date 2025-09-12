@@ -15,7 +15,7 @@ import Dispatch
 
 /// This wrapper primarly exists since we need to call the `runSynchronously`
 /// with the ``PlatformSerialExecutor`` for the tracking to work correctly.
-@available(macOS 26.0, iOS 26.0, watchOS 26.0, tvOS 26.0, visionOS 26.0, *)
+@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
 package final class DispatchSerialExecutor: SerialExecutor, @unchecked Sendable {
   private let queue: DispatchQueue
   private let serialExecutor: UnownedSerialExecutor

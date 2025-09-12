@@ -12,7 +12,7 @@
 
 #if canImport(Darwin)
 
-@available(macOS 26.0, iOS 26.0, watchOS 26.0, tvOS 26.0, visionOS 26.0, *)
+@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
 package final class DispatchGlobalTaskExecutor: TaskExecutor, @unchecked Sendable {
   package init() {}
 

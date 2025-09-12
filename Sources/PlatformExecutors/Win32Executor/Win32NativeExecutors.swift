@@ -279,7 +279,7 @@ private func GetMessage(
 /// mainExecutor.stop()
 /// ```
 @safe
-@available(macOS 26.0, *)
+@available(macOS 9999, *)
 public final class Win32EventLoopExecutor: SerialExecutor, RunLoopExecutor, @unchecked Sendable {
 
   struct Timestamp {
@@ -612,7 +612,7 @@ public final class Win32EventLoopExecutor: SerialExecutor, RunLoopExecutor, @unc
   }
 }
 
-@available(macOS 26.0, *)
+@available(macOS 9999, *)
 extension Win32EventLoopExecutor: SchedulingExecutor {
 
   public func enqueue<C: Clock>(
@@ -681,7 +681,7 @@ extension Win32EventLoopExecutor: SchedulingExecutor {
 
 }
 
-@available(macOS 26.0, *)
+@available(macOS 9999, *)
 extension Win32EventLoopExecutor: MainExecutor {}
 
 /// An executor that uses a Win32 thread pool.
@@ -705,7 +705,7 @@ extension Win32EventLoopExecutor: MainExecutor {}
 /// }
 /// ```
 @safe
-@available(macOS 26.0, *)
+@available(macOS 9999, *)
 public final class Win32ThreadPoolExecutor: TaskExecutor, @unchecked Sendable {
 
   #if canImport(WinSDK)
@@ -855,7 +855,7 @@ private func _runJobFromTimerCallback(
 }
 #endif  // canImport(WinSDK)
 
-@available(macOS 26.0, *)
+@available(macOS 9999, *)
 extension Win32ThreadPoolExecutor: SchedulingExecutor {
 
   public func enqueue<C: Clock>(

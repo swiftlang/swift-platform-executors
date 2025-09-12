@@ -12,7 +12,7 @@
 
 #if os(Windows)
 /// Provides a reasonable default executor factory for your platform.
-@available(macOS 26.0, iOS 26.0, watchOS 26.0, tvOS 26.0, visionOS 26.0, *)
+@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
 public struct PlatformExecutorFactory: ExecutorFactory {
   public static let mainExecutor: any MainExecutor = Win32EventLoopExecutor(isMainExecutor: true)
   public static let defaultExecutor: any TaskExecutor = Win32ThreadPoolExecutor()
@@ -46,7 +46,7 @@ public struct PlatformExecutorFactory: ExecutorFactory {
 }
 #elseif canImport(Darwin)
 /// Provides a reasonable default executor factory for your platform.
-@available(macOS 26.0, iOS 26.0, watchOS 26.0, tvOS 26.0, visionOS 26.0, *)
+@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
 public struct PlatformExecutorFactory: ExecutorFactory {
   public static let mainExecutor: any MainExecutor = DispatchMainExecutor()
   public static let defaultExecutor: any TaskExecutor = DispatchGlobalTaskExecutor()
@@ -101,7 +101,7 @@ import Foundation
 /// By default the size of the ``defaultExecutor`` is determined by the systems available core count.
 /// On Linux this takes into account C1 and C2 group restrictions. Additionally, the size can be customized
 /// by setting the `SWIFT_PLATFORM_DEFAULT_EXECUTOR_POOL_SIZE` environment variable.
-@available(macOS 26.0, iOS 26.0, watchOS 26.0, tvOS 26.0, visionOS 26.0, *)
+@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
 public struct PlatformExecutorFactory: ExecutorFactory {
   public static let mainExecutor: any MainExecutor = PThreadMainExecutor()
   public static let defaultExecutor: any TaskExecutor = {
