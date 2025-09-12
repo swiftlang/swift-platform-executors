@@ -29,7 +29,13 @@ public struct PlatformExecutorFactory: ExecutorFactory {
     poolSize: Int? = nil,
     body: (PlatformTaskExecutor) async throws(Failure) -> Return
   ) async throws(Failure) -> Return {
-    fatalError()
+    let platformExecutor = PlatformTaskExecutor()
+    if let poolSize {
+      platformExecutor.executor = Win32ThreadPoolExecutor(poolSize: poolSize)
+    } else {
+      platformExecutor.executor = Win32ThreadPoolExecutor()
+    }
+    return try await body(platformExecutor)
   }
 
   /// Creates a new platform-native serial executor .
@@ -41,7 +47,9 @@ public struct PlatformExecutorFactory: ExecutorFactory {
     name: String,
     body: (PlatformSerialExecutor) async throws(Failure) -> Return
   ) async throws(Failure) -> Return {
-    fatalError()
+    let platformExecutor = PlatformSerialExecutor()
+    platformExecutor.executor = Win32ThreadPoolExecutor(poolSize: 1)
+    return try await body(platformExecutor)
   }
 }
 #elseif canImport(Darwin)

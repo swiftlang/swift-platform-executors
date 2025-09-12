@@ -18,8 +18,7 @@ public final class PlatformTaskExecutor: TaskExecutor {
   #elseif canImport(Darwin)
   typealias Executor = DispatchTaskExecutor
   #elseif os(Windows)
-  // TODO: This is not the right type
-  typealias Executor = Win32EventLoopExecutor
+  typealias Executor = Win32ThreadPoolExecutor
   #endif
 
   // This is implicitly unwrapped and nonisolated(unsafe) since we need create
