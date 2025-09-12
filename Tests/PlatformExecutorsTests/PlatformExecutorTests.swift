@@ -10,7 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if os(Linux) || os(FreeBSD) || canImport(Darwin)
+#if os(Linux) || os(FreeBSD) || canImport(Darwin) || os(Windows)
 
 import Testing
 import PlatformExecutors
@@ -18,7 +18,7 @@ import PlatformExecutors
 @Suite
 struct PlatformExecutorTests {
   @Test()
-  @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+  @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
   func test() async throws {
     await PlatformExecutorFactory.withTaskExecutor(name: "Test") { executor in
       #expect(await ExecutorFixture.test(executor: executor))
@@ -28,4 +28,5 @@ struct PlatformExecutorTests {
     }
   }
 }
+
 #endif

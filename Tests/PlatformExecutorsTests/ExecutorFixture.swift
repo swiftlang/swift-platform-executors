@@ -10,7 +10,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if canImport(WinSDK) || os(Linux)
 import _Concurrency
 import Synchronization
 
@@ -32,6 +31,7 @@ private let maxDelayTolerance = 250  // ms
 // For the Thread Pool executor, we can return slightly early
 private let minDelayTolerance = 2  // ms
 
+@available(macOS 9999, *)
 func createJob(
   priority: TaskPriority,
   _ body: @escaping () -> Void
@@ -40,6 +40,7 @@ func createJob(
   return _swift_createJobForTestingOnly(priority: priority, body)
 }
 
+@available(macOS 9999, *)
 struct ExecutorFixture {
   static func test(executor: some Executor) async -> Bool {
     var result = true
@@ -50,8 +51,8 @@ struct ExecutorFixture {
     if let serialExecutor = executor as? any SerialExecutor {
       result = await test(serialExecutor: serialExecutor) && result
     }
-    if let schedulableExecutor = executor as? any SchedulableExecutor {
-      result = await test(schedulableExecutor: schedulableExecutor) && result
+    if let schedulingExecutor = executor as? any SchedulingExecutor {
+      result = await test(schedulingExecutor: schedulingExecutor) && result
     }
     if let taskExecutor = executor as? any TaskExecutor {
       result = await test(taskExecutor: taskExecutor) && result
@@ -178,11 +179,11 @@ struct ExecutorFixture {
     }
   }
 
-  static func test<C: Clock, E: SchedulableExecutor>(
-    schedulableExecutor: E,
+  static func test<C: Clock, E: SchedulingExecutor>(
+    schedulingExecutor: E,
     clock: C
   ) async -> Bool {
-    print("\no SchedulableExecutor (\(clock))")
+    print("\no SchedulingExecutor (\(clock))")
 
     print("  - Delays")
     let delays = [15, 30, 100, 250, 500, 1000]
@@ -191,7 +192,7 @@ struct ExecutorFixture {
     let start = clock.now
 
     await withCheckedContinuation { continuation in
-      let runLoopExecutor = schedulableExecutor as? RunLoopExecutor
+      let runLoopExecutor = schedulingExecutor as? RunLoopExecutor
 
       for delay in delays.reversed() {
         let job = createJob(priority: .medium) {
@@ -204,8 +205,8 @@ struct ExecutorFixture {
             $0.append(actualDelay)
           }
         }
-        let theDelay = clock.convert(from: .milliseconds(delay))!
-        schedulableExecutor.enqueue(
+        let theDelay = Duration.milliseconds(delay) as! C.Duration
+        schedulingExecutor.enqueue(
           job,
           after: theDelay,
           clock: clock
@@ -219,8 +220,8 @@ struct ExecutorFixture {
         }
         continuation.resume()
       }
-      let stopDelay = clock.convert(from: .milliseconds(1100))!
-      schedulableExecutor.enqueue(
+      let stopDelay = Duration.milliseconds(1100) as! C.Duration
+      schedulingExecutor.enqueue(
         stopJob,
         after: stopDelay,
         clock: clock
@@ -237,11 +238,10 @@ struct ExecutorFixture {
         return false
       }
       for (ndx, delay) in delays.enumerated() {
-        let actualDelay = clock.convert(
-          from: actualDelays.withLock {
+        let actualDelay =
+          (actualDelays.withLock {
             return $0[ndx]
-          }
-        )!
+          }) as! Duration
 
         // Must not return before the requested delay
         let minDelay: Duration = .milliseconds(delay)
@@ -281,13 +281,13 @@ struct ExecutorFixture {
     print("  - Timestamps")
     let baseTime = clock.now
     let targets = delays.map {
-      baseTime.advanced(by: clock.convert(from: .milliseconds($0))!)
+      baseTime.advanced(by: Duration.milliseconds($0) as! C.Duration)
     }
     let actualTimes = Mutex<[C.Instant]>([])
     let timeOrder = Mutex<[C.Instant]>([])
 
     await withCheckedContinuation { continuation in
-      let runLoopExecutor = schedulableExecutor as? RunLoopExecutor
+      let runLoopExecutor = schedulingExecutor as? RunLoopExecutor
 
       for target in targets.reversed() {
         let job = createJob(priority: .medium) {
@@ -300,7 +300,7 @@ struct ExecutorFixture {
             $0.append(actualTime)
           }
         }
-        schedulableExecutor.enqueue(
+        schedulingExecutor.enqueue(
           job,
           at: target,
           clock: clock
@@ -314,8 +314,8 @@ struct ExecutorFixture {
         }
         continuation.resume()
       }
-      let stopDelay = clock.convert(from: .milliseconds(1100))!
-      schedulableExecutor.enqueue(
+      let stopDelay = Duration.milliseconds(1100) as! C.Duration
+      schedulingExecutor.enqueue(
         stopJob,
         after: stopDelay,
         clock: clock
@@ -339,23 +339,21 @@ struct ExecutorFixture {
 
         // Warn if we return more than 25% after the requested time
         let warnTime = target.advanced(
-          by: clock.convert(from: .milliseconds(delays[ndx] / 4))!
+          by: Duration.milliseconds(delays[ndx] / 4) as! C.Duration
         )
 
         // Must not return more than 25% after the requested time
         let maxTime = target.advanced(
-          by: clock.convert(
-            from: .milliseconds(
-              max(
-                delays[ndx] / 4,
-                maxDelayTolerance
-              )
+          by: Duration.milliseconds(
+            max(
+              delays[ndx] / 4,
+              maxDelayTolerance
             )
-          )!
+          ) as! C.Duration
         )
 
         if actualTime < minTime
-          && clock.convert(from: actualTime.duration(to: minTime))!
+          && (actualTime.duration(to: minTime) as! Duration)
             > .milliseconds(minDelayTolerance)
         {
           print("  * FAILED (\(actualTime) < \(minTime))")
@@ -377,13 +375,13 @@ struct ExecutorFixture {
 
     return result && result2
   }
-  static func test(schedulableExecutor: some SchedulableExecutor) async -> Bool {
+  static func test(schedulingExecutor: some SchedulingExecutor) async -> Bool {
     let result = await test(
-      schedulableExecutor: schedulableExecutor,
+      schedulingExecutor: schedulingExecutor,
       clock: .suspending
     )
     let result2 = await test(
-      schedulableExecutor: schedulableExecutor,
+      schedulingExecutor: schedulingExecutor,
       clock: .continuous
     )
     return result && result2
@@ -454,4 +452,3 @@ struct ExecutorFixture {
     return true
   }
 }
-#endif

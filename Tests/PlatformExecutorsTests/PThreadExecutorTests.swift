@@ -18,7 +18,7 @@ import PlatformExecutors
 @Suite
 struct PThreadExecutorTests {
   @Test
-  @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+  @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
   func singleExecutor() async {
     await PThreadTaskExecutor
       .withExecutor(name: "Test", poolSize: 1) { executor in
@@ -31,7 +31,7 @@ struct PThreadExecutorTests {
   }
 
   @Test
-  @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+  @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
   func poolExecutor() async {
     await PThreadTaskExecutor.withExecutor(
       name: "Test",
@@ -46,7 +46,7 @@ struct PThreadExecutorTests {
   }
 
   @Test
-  @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+  @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
   func test() async throws {
     await PThreadExecutor.withExecutor(name: "Test") { executor in
       #expect(await ExecutorFixture.test(executor: executor))
