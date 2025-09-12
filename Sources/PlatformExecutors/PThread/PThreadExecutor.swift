@@ -187,9 +187,17 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   ) {
     self.init()
 
-    let conditionVariable = ConditionVariable(false)
+    let conditionVariable = ConditionVariable(true)
     let thread = Thread.spawnAndRun(name: name) {
       do {
+        // Block until we've set the thread in the thread bound state
+        conditionVariable.wait {
+          !$0
+        } block: {
+          _ in
+        }
+
+        // Signal that we've started running
         conditionVariable.signal { $0.toggle() }
 
         // It is incredibly important that we pass the right task executor
@@ -218,6 +226,10 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
 
     self._threadBoundState.thread = consume thread
 
+    // Signal that we've set the thread in the thread bound state
+    conditionVariable.signal { $0.toggle() }
+
+    // Block until we've started running
     conditionVariable.wait {
       $0
     } block: { _ in
