@@ -11,7 +11,10 @@
 //===----------------------------------------------------------------------===//
 
 import PlatformExecutors
+
+#if canImport(Darwin)
 import Dispatch
+#endif
 
 @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
 typealias DefaultExecutorFactory = PlatformExecutorFactory
@@ -47,9 +50,9 @@ struct Example {
         )  // The conformance to SerialExecutor is availaiblity gated but the
       // compiler isn't capable of finding it in a #if
     ).run()
-    #endif
     await self.run(executor: DispatchGlobalTaskExecutor())
     await self.runGroup(executor: DispatchGlobalTaskExecutor())
+    #endif
 
     // PThread based executors
     #if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
