@@ -198,7 +198,7 @@ If you have any questions or need help, feel free to reach out by [opening an is
 contacting the maintainers.
 
 - [GitHub Issues](https://github.com/swiftlang/swift-platform-executors/issues) - Bug reports and feature requests
-- [CODEOWNERS](.github/CODEOWNERS]
+- [CODEOWNERS](.github/CODEOWNERS)
 
 This repo is part of the Platform Steering Group.
 
