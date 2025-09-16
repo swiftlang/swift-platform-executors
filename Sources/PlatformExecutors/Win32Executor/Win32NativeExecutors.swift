@@ -579,6 +579,11 @@ public final class Win32EventLoopExecutor: SerialExecutor, RunLoopExecutor, @unc
       return INFINITE
     }
 
+    // Make sure we don't overflow
+    if lowestDelta <= leeway {
+      return 0
+    }
+
     // Compute the desired fire time
     let fireTime = lowestDelta - leeway
 
