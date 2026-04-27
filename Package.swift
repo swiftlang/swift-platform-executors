@@ -13,7 +13,7 @@ if ProcessInfo.processInfo.environment["SPI_PROCESSING"] == "1"
 }
 
 let package = Package(
-  name: "PlatformExecutors",
+  name: "swift-platform-executors",
   products: [
     .library(
       name: "PlatformExecutors",
