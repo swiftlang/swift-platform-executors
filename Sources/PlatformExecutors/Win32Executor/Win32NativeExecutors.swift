@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #if os(Windows) || BUILDING_DOCS
+@_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import _Concurrency
 
 #if canImport(WinSDK)
 import WinSDK
@@ -618,7 +619,7 @@ public final class Win32EventLoopExecutor: SerialExecutor, RunLoopExecutor, @unc
 }
 
 @available(macOS 9999, *)
-extension Win32EventLoopExecutor: SchedulingExecutor {
+@_spi(ExperimentalScheduling) extension Win32EventLoopExecutor: SchedulingExecutor {
 
   public func enqueue<C: Clock>(
     _ job: consuming ExecutorJob,
@@ -633,13 +634,14 @@ extension Win32EventLoopExecutor: SchedulingExecutor {
     } else if let _ = clock as? SuspendingClock {
       queue = .suspending
     } else {
-      clock.enqueue(
-        job,
-        on: self,
-        at: clock.now.advanced(by: delay),
-        tolerance: tolerance
-      )
-      return
+      fatalError("Unsupported clock")
+      //      clock.enqueue(
+      //        job,
+      //        on: self,
+      //        at: clock.now.advanced(by: delay),
+      //        tolerance: tolerance
+      //      )
+      //      return
     }
 
     var now: UInt64 = 0
@@ -687,7 +689,7 @@ extension Win32EventLoopExecutor: SchedulingExecutor {
 }
 
 @available(macOS 9999, *)
-extension Win32EventLoopExecutor: MainExecutor {}
+@_spi(ExperimentalCustomExecutors) extension Win32EventLoopExecutor: MainExecutor {}
 
 /// An executor that uses a Win32 thread pool.
 ///
@@ -830,7 +832,7 @@ public final class Win32ThreadPoolExecutor: TaskExecutor, @unchecked Sendable {
   }
 
   /// Return `self` as a `SchedulingExecutor`.
-  public var asSchedulingExecutor: SchedulingExecutor? {
+  @_spi(ExperimentalScheduling) public var asSchedulingExecutor: SchedulingExecutor? {
     return self
   }
 }
@@ -861,7 +863,7 @@ private func _runJobFromTimerCallback(
 #endif  // canImport(WinSDK)
 
 @available(macOS 9999, *)
-extension Win32ThreadPoolExecutor: SchedulingExecutor {
+@_spi(ExperimentalScheduling) extension Win32ThreadPoolExecutor: SchedulingExecutor {
 
   public func enqueue<C: Clock>(
     _ job: consuming ExecutorJob,

@@ -10,11 +10,15 @@
 //
 //===----------------------------------------------------------------------===//
 
+@_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import _Concurrency
+
 #if os(Windows)
 /// Provides a reasonable default executor factory for your platform.
 @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
-public struct PlatformExecutorFactory: ExecutorFactory {
-  public static let mainExecutor: any MainExecutor = Win32EventLoopExecutor(isMainExecutor: true)
+@_spi(ExperimentalCustomExecutors) public struct PlatformExecutorFactory: ExecutorFactory {
+  @_spi(ExperimentalCustomExecutors) public static let mainExecutor: any MainExecutor = Win32EventLoopExecutor(
+    isMainExecutor: true
+  )
   public static let defaultExecutor: any TaskExecutor = Win32ThreadPoolExecutor()
 
   /// Creates a new platform-native task executor.
@@ -55,8 +59,8 @@ public struct PlatformExecutorFactory: ExecutorFactory {
 #elseif canImport(Darwin)
 /// Provides a reasonable default executor factory for your platform.
 @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
-public struct PlatformExecutorFactory: ExecutorFactory {
-  public static let mainExecutor: any MainExecutor = DispatchMainExecutor()
+@_spi(ExperimentalCustomExecutors) public struct PlatformExecutorFactory: ExecutorFactory {
+  @_spi(ExperimentalCustomExecutors) public static let mainExecutor: any MainExecutor = DispatchMainExecutor()
   public static let defaultExecutor: any TaskExecutor = DispatchGlobalTaskExecutor()
 
   /// Creates a new platform-native task executor.
@@ -110,8 +114,8 @@ import Foundation
 /// On Linux this takes into account C1 and C2 group restrictions. Additionally, the size can be customized
 /// by setting the `SWIFT_PLATFORM_DEFAULT_EXECUTOR_POOL_SIZE` environment variable.
 @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
-public struct PlatformExecutorFactory: ExecutorFactory {
-  public static let mainExecutor: any MainExecutor = PThreadMainExecutor()
+@_spi(ExperimentalCustomExecutors) public struct PlatformExecutorFactory: ExecutorFactory {
+  @_spi(ExperimentalCustomExecutors) public static let mainExecutor: any MainExecutor = PThreadMainExecutor()
   public static let defaultExecutor: any TaskExecutor = {
     let coreCountEnvironment = ProcessInfo.processInfo
       .environment["SWIFT_PLATFORM_DEFAULT_EXECUTOR_POOL_SIZE"]

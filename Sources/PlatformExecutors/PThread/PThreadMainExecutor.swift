@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
+@_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import _Concurrency
 /// A main executor that provides serial execution by taking over the current thread.
 ///
 /// ## Usage

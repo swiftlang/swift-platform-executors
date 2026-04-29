@@ -13,7 +13,8 @@
 #if os(Linux) || os(FreeBSD) || canImport(Darwin) || os(Windows)
 
 import Testing
-import PlatformExecutors
+@_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import _Concurrency
+@_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import PlatformExecutors
 
 @Suite
 struct PlatformExecutorTests {

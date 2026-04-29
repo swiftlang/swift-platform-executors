@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
+@_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import _Concurrency
 /// A serial executor that provides serial execution by spawning a new thread.
 ///
 /// ## Usage
@@ -103,8 +104,8 @@ public final class PThreadSerialExecutor: SerialExecutor, @unchecked Sendable {
 }
 
 #if !canImport(Darwin)
-extension PThreadSerialExecutor: SchedulingExecutor {
-  public var asSchedulingExecutor: SchedulingExecutor? {
+@_spi(ExperimentalScheduling) extension PThreadSerialExecutor: SchedulingExecutor {
+  @_spi(ExperimentalScheduling) public var asSchedulingExecutor: SchedulingExecutor? {
     return self
   }
 
