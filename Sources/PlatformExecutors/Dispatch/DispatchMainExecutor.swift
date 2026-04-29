@@ -12,6 +12,8 @@
 
 #if canImport(Darwin)
 
+@_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import _Concurrency
+
 @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
 package class DispatchMainExecutor: MainExecutor, @unchecked Sendable {
   var threaded = false

@@ -12,7 +12,8 @@
 
 #if canImport(WinSDK)
 import Testing
-import PlatformExecutors
+@_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import _Concurrency
+@_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import PlatformExecutors
 
 @Suite(.serialized) struct Win32ExecutorTests {
   @Test func testEventLoopExecutor() async {

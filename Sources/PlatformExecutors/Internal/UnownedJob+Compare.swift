@@ -10,6 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+@_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import _Concurrency
+
 /// Compare UnownedJobs by priority, breaking ties with the sequence number.
 @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
 func compareJobsByPriorityAndSequenceNumber(

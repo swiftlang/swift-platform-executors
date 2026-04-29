@@ -10,7 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-import PlatformExecutors
+@_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import PlatformExecutors
+@_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import _Concurrency
 
 #if canImport(Darwin)
 import Dispatch

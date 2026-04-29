@@ -24,6 +24,7 @@
 //===----------------------------------------------------------------------===//
 
 #if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
+@_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import _Concurrency
 internal import Synchronization
 
 #if canImport(Darwin)
@@ -598,12 +599,13 @@ extension PThreadExecutor: SchedulingExecutor {
         state.suspendingClockJobs.push((instant, unownedJob))
       }
     default:
-      clock.enqueue(
-        job,
-        on: self,
-        at: instant,
-        tolerance: tolerance
-      )
+      fatalError("Unsupported clock")
+    //      clock.enqueue(
+    //        job,
+    //        on: self,
+    //        at: instant,
+    //        tolerance: tolerance
+    //      )
     }
   }
 }

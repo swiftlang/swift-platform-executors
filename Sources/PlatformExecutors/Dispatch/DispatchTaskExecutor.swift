@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #if canImport(Darwin)
+@_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import _Concurrency
 import Dispatch
 
 /// This wrapper primarly exists since we need to call the `runSynchronously`

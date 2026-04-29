@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
+@_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import _Concurrency
 internal import Synchronization
 
 /// A task executor that distributes work across multiple `PThreadExecutor` instances.
@@ -142,8 +143,8 @@ public final class PThreadTaskExecutor: TaskExecutor {
 }
 
 #if !canImport(Darwin)
-extension PThreadTaskExecutor: SchedulingExecutor {
-  public var asSchedulingExecutor: SchedulingExecutor? {
+@_spi(ExperimentalScheduling) extension PThreadTaskExecutor: SchedulingExecutor {
+  @_spi(ExperimentalScheduling) public var asSchedulingExecutor: SchedulingExecutor? {
     return self
   }
 
