@@ -14,6 +14,7 @@ jobs:
     with:
       linux_swift_versions: "[\"nightly-main\"]"
       windows_swift_versions: "[\"nightly\"]"
+      linux_build_command: swift test --traits ExperimentalIO
 
   soundness:
     name: Soundness

@@ -22,6 +22,12 @@ let package = Package(
       ]
     )
   ],
+  traits: [
+    .trait(
+      name: "ExperimentalIO",
+      description: "Trait guarding experimental and highly unstable I/O interfaces"
+    )
+  ],
   dependencies: [
     .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0")
   ],
