@@ -14,6 +14,7 @@
 /// A scheduler that can be used to perform operations.
 ///
 /// This is the base protocol that any resource specific scheduler should inherit from.
+@available(anyAppleOS 27.0, *)
 public protocol OperationScheduler: AnyObject {
   /// Per-operation state passed to the resource specific submit methods.
   associatedtype OperationState: ~Copyable

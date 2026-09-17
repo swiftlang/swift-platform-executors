@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:swift-platform-executors}",
+            "name": "Debug PlatformExecutorsExample",
+            "target": "PlatformExecutorsExample",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug PlatformExecutorsExample"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:swift-platform-executors}",
+            "name": "Release PlatformExecutorsExample",
+            "target": "PlatformExecutorsExample",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release PlatformExecutorsExample"
+        }
+    ]
+}
