@@ -28,17 +28,28 @@ import Darwin
 
 private let sysKevent = kevent
 
+/// An I/O mechanism that uses kqueue for eventing.
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
-struct KQueueSelector: ~Copyable {
-  /// The selector file descriptor.
-  fileprivate var selectorFD: CInt
+struct KQueueReadinessBackend: ~Copyable, IOBackend {
+  /// A handle that other threads use to wake this backend up.
+  struct WakeupHandle: Sendable {
+    fileprivate let kqueueFD: CInt
+  }
+
+  /// The file descriptor of the queue.
+  fileprivate var kqueueFD: CInt
+
+  /// A handle that other threads use to wake this backend up.
+  var wakeupHandle: WakeupHandle {
+    WakeupHandle(kqueueFD: self.kqueueFD)
+  }
   /// The next continuous clock timer to avoid re-arming the timer if possible.
   fileprivate var nextContinuousClockTimer: ContinuousClock.Instant?
   /// The next suspending clock timer to avoid re-arming the timer if possible.
   fileprivate var nextSuspendingClockTimer: SuspendingClock.Instant?
 
   init() throws {
-    self.selectorFD = try! Self.kqueue()
+    self.kqueueFD = try! Self.kqueue()
 
     var event = Darwin.kevent()
     event.ident = 0
@@ -49,7 +60,7 @@ struct KQueueSelector: ~Copyable {
     event.flags = UInt16(EV_ADD | EV_ENABLE | EV_CLEAR)
     try withUnsafeMutablePointer(to: &event) { ptr in
       try Self.kqueueApplyEventChangeSet(
-        selectorFD: selectorFD,
+        selectorFD: kqueueFD,
         keventBuffer: UnsafeMutableBufferPointer(start: ptr, count: 1)
       )
     }
@@ -62,7 +73,7 @@ struct KQueueSelector: ~Copyable {
     // - EBADF, which can't happen here because we would crash as EBADF is marked unacceptable
     // Therefore, we assert here that close will always succeed and if not, that's a bug we need to know
     // about.
-    try! close(descriptor: self.selectorFD)
+    try! close(descriptor: self.kqueueFD)
   }
 
   @inline(never)
@@ -115,7 +126,7 @@ struct KQueueSelector: ~Copyable {
     }
   }
 
-  private static func toKQueueTimeSpec(strategy: SelectorStrategy) -> timespec? {
+  private static func toKQueueTimeSpec(strategy: IOWaitStrategy) -> timespec? {
     switch strategy {
     case .block:
       return nil
@@ -127,9 +138,9 @@ struct KQueueSelector: ~Copyable {
     }
   }
 
-  /// Blocks until the wakeup is called.
-  mutating func whenReady(
-    strategy: SelectorStrategy
+  /// Blocks until there is work to do.
+  mutating func wait(
+    strategy: IOWaitStrategy
   ) throws {
     // Set up timers if needed
     try self.setupTimers(strategy: strategy)
@@ -142,7 +153,7 @@ struct KQueueSelector: ~Copyable {
       let readyEvents = try timespec.withUnsafeOptionalPointer { ts in
         Int(
           try Self.kevent(
-            kq: self.selectorFD,
+            kq: self.kqueueFD,
             changelist: nil,
             nchanges: 0,
             eventlist: eventsPointer.baseAddress!,
@@ -179,7 +190,7 @@ struct KQueueSelector: ~Copyable {
   }
 
   /// Set up kqueue timers for the given strategy
-  private mutating func setupTimers(strategy: SelectorStrategy) throws {
+  private mutating func setupTimers(strategy: IOWaitStrategy) throws {
     guard case .blockUntilTimeout(let continuousClockInstant, let suspendingClockInstant) = strategy else {
       return
     }
@@ -239,14 +250,16 @@ struct KQueueSelector: ~Copyable {
 
     try withUnsafeMutablePointer(to: &event) { ptr in
       try Self.kqueueApplyEventChangeSet(
-        selectorFD: self.selectorFD,
+        selectorFD: self.kqueueFD,
         keventBuffer: UnsafeMutableBufferPointer(start: ptr, count: 1)
       )
     }
   }
 
-  /// Wakes up the selector.
-  func wakeup() throws {
+  /// Wakes up a backend from any thread.
+  ///
+  /// - Parameter handle: The handle of the backend to wake up.
+  static func wakeup(_ handle: WakeupHandle) throws {
     var event = Darwin.kevent()
     event.ident = 0
     event.filter = Int16(EVFILT_USER)
@@ -256,7 +269,7 @@ struct KQueueSelector: ~Copyable {
     event.flags = 0
     try withUnsafeMutablePointer(to: &event) { ptr in
       try Self.kqueueApplyEventChangeSet(
-        selectorFD: self.selectorFD,
+        selectorFD: handle.kqueueFD,
         keventBuffer: UnsafeMutableBufferPointer(start: ptr, count: 1)
       )
     }

@@ -23,10 +23,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-/// The strategy used for the `Selector`.
+/// How long an I/O mechanism waits for work to become available.
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
-enum SelectorStrategy {
-  /// Block until there is some IO ready to be processed or the `Selector` is explicitly woken up.
+enum IOWaitStrategy {
+  /// Block until there is some I/O ready to be processed or the mechanism is explicitly woken up.
   case block
 
   /// Block until one of the clocks is ready
@@ -35,6 +35,6 @@ enum SelectorStrategy {
     suspendingClockInstant: SuspendingClock.Instant?
   )
 
-  /// Try to select all ready IO at this point in time without blocking at all.
+  /// Take all the I/O that is ready at this point in time without blocking at all.
   case now
 }

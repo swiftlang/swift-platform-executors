@@ -48,15 +48,8 @@ import Dispatch
 /// ```
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
 package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
-  #if canImport(Darwin)
-  typealias Selector = KQueueSelector
-  #elseif canImport(Glibc)
-  typealias Selector = EpollSelector
-  #elseif os(WASI)
-  typealias Selector = ConditionSelector
-  #else
-  #error("Unsupported platform")
-  #endif
+  /// The mechanism that this executor waits for work on.
+  typealias Backend = PlatformIOBackend
   /// This is the state that is accessed from multiple threads; hence, it must be protected via a lock.
   private struct MultiThreadedState: ~Copyable {
     /// Indicates if we are running and about to pop more jobs. If this is true then we don't have to wake the selector.
@@ -88,15 +81,10 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
 
   /// This is the state that is bound to this thread.
   struct ThreadBoundState: ~Copyable {
-    /// This method can be called from off thread so we are not asserting here.
-    mutating func wakeupSelector() throws {
-      try self._selector.wakeup()
-    }
-
-    /// The backing storage for the selector.
+    /// The backing storage for the backend.
     ///
     /// This is a force try since there really is no way to handle these errors and this should never fail.
-    var _selector = try! Selector()
+    var _backend = try! Backend()
 
     /// The backing storage of the next executed jobs.
     fileprivate var _nextExecutedJobs: ContiguousArray<UnownedJob>
@@ -114,15 +102,15 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   /// This is the state that is accessed from the thread backing the executor.
   private var _threadBoundState: ThreadBoundState
 
-  /// The executor's selector.
-  private var selector: Selector {
+  /// The executor's I/O mechanism.
+  private var backend: Backend {
     _read {
       assert(self.onExecutor)
-      yield self._threadBoundState._selector
+      yield self._threadBoundState._backend
     }
     _modify {
       assert(self.onExecutor)
-      yield &self._threadBoundState._selector
+      yield &self._threadBoundState._backend
     }
   }
 
@@ -143,6 +131,12 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
 
   /// The thread that runs this executor.
   private var thread: Thread?
+
+  /// The handle that wakes the backend up from another thread.
+  ///
+  /// This is held separately so waking the executor up never touches its thread bound state.
+  private let wakeupHandle: Backend.WakeupHandle
+
   /// The amount of jobs to process in a single executor tick.
   /// This is a static var since those optimize better
   private static var jobsBatchSize: Int {
@@ -265,6 +259,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     self._threadBoundState = .init(
       _nextExecutedJobs: ContiguousArray()
     )
+    self.wakeupHandle = self._threadBoundState._backend.wakeupHandle
   }
 
   deinit {
@@ -319,10 +314,10 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
         body(&state)
       }
     } else {
-      let shouldWakeSelector = self._multiThreadedState.withLock { state in
+      let shouldWakeBackend = self._multiThreadedState.withLock { state in
         body(&state)
         guard state.pendingJobPop else {
-          // We have to wake the selector and we are going to store that we are about to do that.
+          // We have to wake the backend and we are going to store that we are about to do that.
           state.pendingJobPop = true
           return true
         }
@@ -330,16 +325,16 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
         return false
       }
 
-      // We only need to wake up the selector if we're not in the executor. If we're in the executor already,
+      // We only need to wake up the backend if we're not in the executor. If we're in the executor already,
       // we're running a job already which means that we'll check at least once more if there are other jobs to run.
       // While we had the lock we also checked whether the executor was _already_ going to be woken.
       // This saves us a syscall on hot loops.
       //
       // In the future we'll use an MPSC queue here and that will complicate things, so we may get some spurious wakeups,
       // but as long as we're using the big dumb lock we can make this optimization safely.
-      if shouldWakeSelector {
-        // Nothing we can do really if we fail to wake the selector
-        try? self._threadBoundState.wakeupSelector()
+      if shouldWakeBackend {
+        // Nothing we can do really if we fail to wake the backend
+        try? Backend.wakeup(self.wakeupHandle)
       }
     }
   }
@@ -356,9 +351,11 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     precondition(self.onExecutor)
   }
 
-  /// Wake the `Selector` which means `Selector.whenReady(...)` will unblock.
-  internal func _wakeupSelector() throws {
-    try self.selector.wakeup()
+  /// Wakes the backend up, which means a call to `wait` unblocks.
+  ///
+  /// - Note: This can be called from any thread.
+  internal func _wakeupBackend() throws {
+    try Backend.wakeup(self.wakeupHandle)
   }
 
   /// Start processing the jobs and handle any I/O.
@@ -434,18 +431,16 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
         break
       }
 
-      let strategy = self.currentSelectorStrategy(
+      let strategy = self.currentIOWaitStrategy(
         moreJobsQueued: moreJobsQueued,
         nextContinuousClockDeadline: nextContinuousClockDeadline,
         nextSuspendingClockDeadline: nextSuspendingClockDeadline
       )
 
-      // Let's wait on the selector until an event happens
-      try self.selector.whenReady(
-        strategy: strategy
-      )
+      // Let's wait on the backend until there is work to do
+      try self.backend.wait(strategy: strategy)
 
-      // Our selector unblocked and we are going to pop some jobs
+      // Our backend unblocked and we are going to pop some jobs
       self._multiThreadedState.withLock {
         $0.pendingJobPop = true
       }
@@ -514,11 +509,11 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     return (!jobs.queue.isEmpty, nextContinuousClockDeadline, nextSuspendingClockDeadline)
   }
 
-  private func currentSelectorStrategy(
+  private func currentIOWaitStrategy(
     moreJobsQueued: Bool,
     nextContinuousClockDeadline: ContinuousClock.Instant?,
     nextSuspendingClockDeadline: SuspendingClock.Instant?,
-  ) -> SelectorStrategy {
+  ) -> IOWaitStrategy {
     guard !moreJobsQueued else {
       // There are more jobs queued without a deadline so we just need to select all events again
       return .now
