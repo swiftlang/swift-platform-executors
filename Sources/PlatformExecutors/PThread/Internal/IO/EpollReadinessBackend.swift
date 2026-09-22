@@ -27,9 +27,9 @@
 import Glibc
 import CPlatformExecutors
 
-/// A selector that uses epoll for eventing
+/// An I/O mechanism that uses epoll for eventing.
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
-struct EpollSelector: ~Copyable {
+struct EpollReadinessBackend: ~Copyable, IOBackend {
   /// User data supports (un)packing into an `UInt64` because epoll has a user info field that we can attach which is
   /// up to 64 bits wide. We're using all of those 64 bits, 32 for a "registration ID" and 32 for the file descriptor.
   struct UserData {
@@ -48,8 +48,13 @@ struct EpollSelector: ~Copyable {
     }
   }
 
-  /// The selector file descriptor.
-  fileprivate var selectorFD: CInt
+  /// A handle that other threads use to wake this backend up.
+  struct WakeupHandle: Sendable {
+    fileprivate let eventFD: CInt
+  }
+
+  /// The file descriptor of the epoll instance.
+  fileprivate var epollFD: CInt
   /// The event file descriptor to wake the thread when a new job is enqueued.
   fileprivate let eventFD: CInt
   /// The monotonic timer file descriptor to back the suspending clock.
@@ -61,9 +66,14 @@ struct EpollSelector: ~Copyable {
   /// The next suspending clock timer to avoid re-arming the timer if possible.
   fileprivate var nextBoottimelockTimer: SuspendingClock.Instant?
 
+  /// A handle that other threads use to wake this backend up.
+  var wakeupHandle: WakeupHandle {
+    WakeupHandle(eventFD: self.eventFD)
+  }
+
   init() throws {
     // We try! all of these since if the creation fails there is nothing we can do to recover.
-    self.selectorFD = try! Epoll.epoll_create(size: 128)
+    self.epollFD = try! Epoll.epoll_create(size: 128)
     self.eventFD = try! EventFileDescriptor.makeEventFileDescriptor(
       initval: 0,
       flags: Int32(EventFileDescriptor.EFD_CLOEXEC | EventFileDescriptor.EFD_NONBLOCK)
@@ -86,7 +96,7 @@ struct EpollSelector: ~Copyable {
       )
     )
     try Epoll.epoll_ctl(
-      epfd: self.selectorFD,
+      epfd: self.epollFD,
       op: Epoll.EPOLL_CTL_ADD,
       fd: self.eventFD,
       event: &ev
@@ -101,7 +111,7 @@ struct EpollSelector: ~Copyable {
       )
     )
     try Epoll.epoll_ctl(
-      epfd: self.selectorFD,
+      epfd: self.epollFD,
       op: Epoll.EPOLL_CTL_ADD,
       fd: self.monotonicTimerFD,
       event: &monotonicTimerev
@@ -116,7 +126,7 @@ struct EpollSelector: ~Copyable {
       )
     )
     try Epoll.epoll_ctl(
-      epfd: self.selectorFD,
+      epfd: self.epollFD,
       op: Epoll.EPOLL_CTL_ADD,
       fd: self.boottimeTimerFD,
       event: &boottimeTimerev
@@ -133,12 +143,12 @@ struct EpollSelector: ~Copyable {
     try! close(descriptor: self.boottimeTimerFD)
     try! close(descriptor: self.monotonicTimerFD)
     try! close(descriptor: self.eventFD)
-    try! close(descriptor: self.selectorFD)
+    try! close(descriptor: self.epollFD)
   }
 
-  /// Blocks until the wakeup is called.
-  mutating func whenReady(
-    strategy: SelectorStrategy
+  /// Blocks until there is work to do.
+  mutating func wait(
+    strategy: IOWaitStrategy
   ) throws {
     // Right now we only handle three events at most: EventFD and two TimerFDs
     let maxEvents = 3
@@ -149,7 +159,7 @@ struct EpollSelector: ~Copyable {
       case .now:
         readyEvents = Int(
           try Epoll.epoll_wait(
-            epfd: self.selectorFD,
+            epfd: self.epollFD,
             events: eventsPointer.baseAddress!,
             maxevents: Int32(maxEvents),
             timeout: 0
@@ -194,7 +204,7 @@ struct EpollSelector: ~Copyable {
       case .block:
         readyEvents = Int(
           try Epoll.epoll_wait(
-            epfd: self.selectorFD,
+            epfd: self.epollFD,
             events: eventsPointer.baseAddress!,
             maxevents: Int32(maxEvents),
             timeout: -1  // Specifying -1 blocks until a file descriptor becomes ready
@@ -243,9 +253,11 @@ struct EpollSelector: ~Copyable {
     }
   }
 
-  /// Wakes up the selector.
-  func wakeup() throws {
-    _ = try EventFileDescriptor.eventfd_write(fd: self.eventFD, value: 1)
+  /// Wakes up a backend from any thread.
+  ///
+  /// - Parameter handle: The handle of the backend to wake up.
+  static func wakeup(_ handle: WakeupHandle) throws {
+    _ = try EventFileDescriptor.eventfd_write(fd: handle.eventFD, value: 1)
   }
 
   @inline(never)
@@ -339,7 +351,7 @@ private struct EpollFilterSet: OptionSet, Equatable {
 }
 
 extension UInt64 {
-  init(_ epollUserData: EpollSelector.UserData) {
+  init(_ epollUserData: EpollReadinessBackend.UserData) {
     let fd = epollUserData.fileDescriptor
     assert(fd >= 0, "\(fd) is not a valid file descriptor")
     self = IntegerBitPacking.packUInt32CInt(epollUserData.registrationID, fd)
