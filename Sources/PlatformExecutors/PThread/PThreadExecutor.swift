@@ -88,41 +88,6 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
 
   /// This is the state that is bound to this thread.
   struct ThreadBoundState: ~Copyable {
-    /// The executor's thread.
-    fileprivate var thread: Thread?
-    /// Indicates if the executor took over the calling thread
-    fileprivate var tookOverThread: Bool = false
-
-    func isOnThread() -> Bool {
-      if self.thread == nil {
-      }
-      return self.thread?.isCurrentFunc() ?? false
-    }
-
-    /// The executor's selector.
-    var selector: Selector {
-      _read {
-        assert(self.isOnThread())
-        yield self._selector
-      }
-      _modify {
-        assert(self.isOnThread())
-        yield &self._selector
-      }
-    }
-
-    /// The jobs that are next in line to be executed.
-    fileprivate var nextExecutedJobs: ContiguousArray<UnownedJob> {
-      _read {
-        assert(self.isOnThread())
-        yield self._nextExecutedJobs
-      }
-      _modify {
-        assert(self.isOnThread())
-        yield &self._nextExecutedJobs
-      }
-    }
-
     /// This method can be called from off thread so we are not asserting here.
     mutating func wakeupSelector() throws {
       try self._selector.wakeup()
@@ -149,9 +114,35 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   /// This is the state that is accessed from the thread backing the executor.
   private var _threadBoundState: ThreadBoundState
 
+  /// The executor's selector.
+  private var selector: Selector {
+    _read {
+      assert(self.onExecutor)
+      yield self._threadBoundState._selector
+    }
+    _modify {
+      assert(self.onExecutor)
+      yield &self._threadBoundState._selector
+    }
+  }
+
+  /// The jobs that are next in line to be executed.
+  private var nextExecutedJobs: ContiguousArray<UnownedJob> {
+    _read {
+      assert(self.onExecutor)
+      yield self._threadBoundState._nextExecutedJobs
+    }
+    _modify {
+      assert(self.onExecutor)
+      yield &self._threadBoundState._nextExecutedJobs
+    }
+  }
+
   /// The next sequence number of an enqueued jobs.
   private let sequenceNumber = Atomic<UInt64>(0)
 
+  /// The thread that runs this executor.
+  private var thread: Thread?
   /// The amount of jobs to process in a single executor tick.
   /// This is a static var since those optimize better
   private static var jobsBatchSize: Int {
@@ -159,12 +150,12 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   }
 
   internal var threadDescription: String {
-    return self._threadBoundState.thread?.description ?? "not running"
+    return self.thread?.description ?? "not running"
   }
 
   /// Returns if we are currently running on the executor.
   private var onExecutor: Bool {
-    return self._threadBoundState.thread?.isCurrent ?? false
+    return self.thread?.isCurrent ?? false
   }
 
   /// Creates a new platform-native task executor.
@@ -258,7 +249,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
       }
     }
 
-    self._threadBoundState.thread = consume thread
+    self.thread = .some(consume thread)
 
     // Signal that we've set the thread in the thread bound state
     conditionVariable.signal { $0.toggle() }
@@ -312,7 +303,9 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
       $0
     } block: { _ in
     }
-    guard let thread = self._threadBoundState.thread.take() else {
+    var thread: Thread? = nil
+    swap(&self.thread, &thread)
+    guard let thread else {
       fatalError("Executor already shutdown")
     }
 
@@ -365,16 +358,16 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
 
   /// Wake the `Selector` which means `Selector.whenReady(...)` will unblock.
   internal func _wakeupSelector() throws {
-    try self._threadBoundState.selector.wakeup()
+    try self.selector.wakeup()
   }
 
   /// Start processing the jobs and handle any I/O.
   ///
   /// This method will continue running and blocking if needed.
   internal func run(runJobSynchronously: (UnownedJob) -> Void) throws {
-    if self._threadBoundState.thread == nil {
-      self._threadBoundState.thread = Thread.current
-      self._threadBoundState.tookOverThread = true
+    if self.thread == nil {
+      // The executor took over the calling thread, which does not have to be joined.
+      self.thread = .some(Thread.current)
     }
     self.assertOnExecutor()
 
@@ -406,11 +399,11 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
               jobs: &state.jobs,
               continuousClockJobs: &state.continuousClockJobs,
               suspendingClockJobs: &state.suspendingClockJobs,
-              jobsCopy: &self._threadBoundState.nextExecutedJobs,
+              jobsCopy: &self.nextExecutedJobs,
               batchSize: Self.jobsBatchSize
             )
 
-            if self._threadBoundState.nextExecutedJobs.isEmpty {
+            if self.nextExecutedJobs.isEmpty {
               // We got no jobs to execute so we will block and need to be woken up.
               assert(moreJobsQueued == false)
               state.pendingJobPop = false
@@ -423,17 +416,17 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
           break
         }
 
-        if self._threadBoundState.nextExecutedJobs.isEmpty {
+        if self.nextExecutedJobs.isEmpty {
           // There are no more jobs to execute so we have to block now
           break
         }
 
-        for job in self._threadBoundState.nextExecutedJobs {
+        for job in self.nextExecutedJobs {
           runJobSynchronously(job)
         }
 
         // Remove all the just executed jobs but keep the capacity.
-        self._threadBoundState.nextExecutedJobs.removeAll(keepingCapacity: true)
+        self.nextExecutedJobs.removeAll(keepingCapacity: true)
       }
 
       if stopConditionVariable != nil {
@@ -448,7 +441,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
       )
 
       // Let's wait on the selector until an event happens
-      try self._threadBoundState.selector.whenReady(
+      try self.selector.whenReady(
         strategy: strategy
       )
 
@@ -616,7 +609,7 @@ extension PThreadExecutor: SchedulingExecutor {
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
 extension PThreadExecutor: CustomStringConvertible {
   package var description: String {
-    "PThreadExecutor(\(self._threadBoundState.thread?.description ?? "not running"))"
+    "PThreadExecutor(\(self.threadDescription))"
   }
 }
 
