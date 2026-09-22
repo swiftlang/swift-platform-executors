@@ -1,0 +1,36 @@
+{
+  "name": "Swift Platform Executors",
+  "image": "swiftlang/swift:nightly-6.4.x-noble",
+  // SYS_PTRACE and an unconfined seccomp profile are needed for LLDB and for
+  // the Linux syscalls used by the platform executors (epoll, io_uring).
+  "runArgs": [
+    "--cap-add=SYS_PTRACE",
+    "--security-opt",
+    "seccomp=unconfined"
+  ],
+  // Keep the container's build products out of the host's .build directory so
+  // Linux and macOS builds don't invalidate each other.
+  "mounts": [
+    "source=${localWorkspaceFolderBasename}-build,target=${containerWorkspaceFolder}/.build,type=volume"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "swiftlang.swift-vscode",
+        "editorconfig.editorconfig"
+      ],
+      "settings": {
+        "swift.buildArguments": [
+          "--traits",
+          "ExperimentalIO"
+        ],
+        "swift.autoGenerateLaunchConfigurations": false,
+        "[swift]": {
+          "editor.defaultFormatter": "swiftlang.swift-vscode",
+          "editor.formatOnSave": true
+        }
+      }
+    }
+  },
+  "postCreateCommand": "swift build --traits ExperimentalIO"
+}

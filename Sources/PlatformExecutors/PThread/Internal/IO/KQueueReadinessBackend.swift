@@ -116,7 +116,7 @@ struct KQueueReadinessBackend: ~Copyable, IOBackend {
         nevents: 0,
         timeout: nil
       )
-    } catch let err as IOError {
+    } catch let err as SyscallError {
       if err.errnoCode == EINTR {
         // See https://www.freebsd.org/cgi/man.cgi?query=kqueue&sektion=2
         // When kevent() call fails with EINTR error, all changes in the changelist have been applied.
