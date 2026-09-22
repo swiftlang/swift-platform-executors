@@ -23,7 +23,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
+#if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin) || os(WASI)
 @_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import _Concurrency
 internal import Synchronization
 
@@ -52,6 +52,8 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   typealias Selector = KQueueSelector
   #elseif canImport(Glibc)
   typealias Selector = EpollSelector
+  #elseif os(WASI)
+  typealias Selector = ConditionSelector
   #else
   #error("Unsupported platform")
   #endif

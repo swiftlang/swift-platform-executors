@@ -23,8 +23,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
-#if os(Linux) || os(FreeBSD) || os(Android)
+#if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin) || os(WASI)
+#if os(Linux) || os(FreeBSD) || os(Android) || os(WASI)
 import CPlatformExecutors
 #endif
 

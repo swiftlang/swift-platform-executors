@@ -181,6 +181,80 @@ import Foundation
     }
   }
 }
+#elseif os(WASI)
+import WASILibc
+
+/// Provides a reasonable default executor factory for `wasm32-unknown-wasip1-threads`.
+///
+/// By default the ``defaultExecutor`` uses four threads and the size can be customized by
+/// setting the `SWIFT_PLATFORM_DEFAULT_EXECUTOR_POOL_SIZE` environment
+/// variable (in the host's WASI environment).
+@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+@_spi(ExperimentalCustomExecutors) public struct PlatformExecutorFactory: ExecutorFactory {
+  @_spi(ExperimentalCustomExecutors) public static let mainExecutor: any MainExecutor = PThreadMainExecutor()
+  public static let defaultExecutor: any TaskExecutor = {
+    let coreCountEnvironment = getenv("SWIFT_PLATFORM_DEFAULT_EXECUTOR_POOL_SIZE")
+      .map { String(cString: $0) }
+    let coreCount = coreCountEnvironment.flatMap { Int($0) } ?? SystemCoreCount.coreCount
+    return PThreadTaskExecutor(
+      name: "global",
+      poolSize: coreCount,
+      taskExecutor: nil
+    )
+  }()
+
+  /// Creates a new platform-native task executor.
+  ///
+  /// - Parameters:
+  ///   - name: The base name for the executor.
+  ///   - poolSize: The suggested number internal executors in the pool. Must be greater than 0.
+  ///   Defaults to `nil` which uses a reasonable platform default.
+  ///   - body: A closure that gets access to the task executor for the duration of the closure.
+  public nonisolated(nonsending) static func withTaskExecutor<Return, Failure: Error>(
+    name: String,
+    poolSize: Int? = nil,
+    body: (PlatformTaskExecutor) async throws(Failure) -> Return
+  ) async throws(Failure) -> Return {
+    do {
+      let platformExecutor = PlatformTaskExecutor()
+      return try await PThreadTaskExecutor._withExecutor(
+        name: name,
+        poolSize: poolSize,
+        taskExecutor: platformExecutor.asUnownedTaskExecutor()
+      ) { executor in
+        platformExecutor.executor = executor
+        return try await body(platformExecutor)
+      }
+    } catch {
+      // This is the only possible error thrown but somehow the compiler trips up
+      throw error as! Failure
+    }
+  }
+
+  /// Creates a new platform-native serial executor .
+  ///
+  /// - Parameters:
+  ///   - name: The base name for the executor.
+  ///   - body: A closure that gets access to the serial executor for the duration of the closure.
+  public nonisolated(nonsending) static func withSerialExecutor<Return, Failure: Error>(
+    name: String,
+    body: (PlatformSerialExecutor) async throws(Failure) -> Return
+  ) async throws(Failure) -> Return {
+    do {
+      let platformExecutor = PlatformSerialExecutor()
+      return try await PThreadSerialExecutor._withExecutor(
+        name: name,
+        serialExecutor: platformExecutor.asUnownedSerialExecutor()
+      ) { executor in
+        platformExecutor.executor = executor
+        return try await body(platformExecutor)
+      }
+    } catch {
+      // This is the only possible error thrown but somehow the compiler trips up
+      throw error as! Failure
+    }
+  }
+}
 #else
 typealias PlatformExecutorFactory = _Concurrency.PlatformExecutorFactory
 #endif

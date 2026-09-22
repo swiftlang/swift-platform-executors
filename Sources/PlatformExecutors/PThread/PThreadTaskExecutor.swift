@@ -10,7 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
+#if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin) || os(WASI)
 @_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import _Concurrency
 internal import Synchronization
 

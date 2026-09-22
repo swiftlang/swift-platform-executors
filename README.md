@@ -7,7 +7,7 @@ This package provides platform-native executors for Swift Concurrency.
 
 🚀 Swift package for Swift Concurrency executors
 📦 Compatible with Swift Package Manager
-📱 Supports Linux, Windows, iOS, macOS, watchOS, tvOS, and visionOS
+📱 Supports Linux, Windows, iOS, macOS, watchOS, tvOS, visionOS, and WebAssembly (wasi-threads)
 🔧 Built with Swift 6.2+, Xcode 26+
 
 🔗 Jump to:
@@ -73,6 +73,10 @@ typealias DefaultExecutorFactory = PlatformExecutorFactory
 Be aware that if you take advantage of this option, the Dispatch main
 queue will not be processed, so anything that relies explicitly on
 `Dispatch.main` will not work.
+
+The pthread executors (`PThreadMainExecutor`, `PThreadExecutor`,
+`PThreadPoolExecutor`) are the platform executors on Linux, Apple platforms
+and WebAssembly (`wasm32-unknown-wasip1-threads`).
 
 #### Windows
 

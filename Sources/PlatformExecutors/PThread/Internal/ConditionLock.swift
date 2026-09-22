@@ -32,6 +32,10 @@ import WinSDK
 import Glibc
 #elseif canImport(Musl)
 import Musl
+#elseif os(WASI)
+import CPlatformExecutors
+import WASILibc
+import wasi_pthread
 #else
 #error("The concurrency lock module was unable to identify your C library.")
 #endif
@@ -102,6 +106,56 @@ final class ConditionVariable<Value: ~Copyable> {
     pthread_cond_wait(condition, lock)
     #endif
   }
+
+  #if os(WASI)
+  /// Waits at most `timeout`; true when woken, false on the timeout.
+  private func _wait(timeout: Duration) -> Bool {
+    var deadline = Self.realtimeDeadline(after: timeout)
+    return pthread_cond_timedwait(condition, lock, &deadline) != ETIMEDOUT
+  }
+
+  /// The absolute CLOCK_REALTIME time `timeout` from now, as
+  /// pthread_cond_timedwait wants it. A negative timeout is now; a timeout
+  /// too far for `time_t` saturates rather than wrapping.
+  private static func realtimeDeadline(after timeout: Duration) -> timespec {
+    var now = timespec()
+    if clock_gettime(CPlatformExecutors_CLOCK_REALTIME, &now) != 0 {
+      now = timespec()
+    }
+    let nanosecondsPerSecond: Int128 = 1_000_000_000
+    let nanoseconds = max(0, timeout.attoseconds / 1_000_000_000)
+    let (seconds, remainder) = nanoseconds.quotientAndRemainder(dividingBy: nanosecondsPerSecond)
+    var totalSeconds = Int128(now.tv_sec) + seconds
+    var totalNanoseconds = Int128(now.tv_nsec) + remainder
+    if totalNanoseconds >= nanosecondsPerSecond {
+      totalNanoseconds -= nanosecondsPerSecond
+      totalSeconds += 1
+    }
+    guard totalSeconds <= Int128(time_t.max) else {
+      return timespec(tv_sec: time_t.max, tv_nsec: Int(nanosecondsPerSecond - 1))
+    }
+    return timespec(tv_sec: time_t(totalSeconds), tv_nsec: Int(totalNanoseconds))
+  }
+
+  /// Like `wait(when:block:)`, giving up once `timeout` has elapsed (the
+  /// block then runs whether or not `when` holds).
+  func wait<Return, Failure: Error>(
+    until timeout: Duration,
+    when: (inout sending Value) -> Bool,
+    block: (inout sending Value) throws(Failure) -> Return
+  ) throws(Failure) -> Return {
+    self._lock()
+    defer {
+      self._unlock()
+    }
+    while !when(&state) {
+      if !self._wait(timeout: timeout) {
+        break
+      }
+    }
+    return try block(&state)
+  }
+  #endif
 
   func signal<Return, Failure: Error>(
     block: (inout sending Value) throws(Failure) -> Return

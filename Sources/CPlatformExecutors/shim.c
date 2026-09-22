@@ -64,3 +64,41 @@ void CPlatformExecutors_dispatchMain(void) {
 }
 
 #endif // __has_include(<dispatch/dispatch.h>)
+
+// wasm32-unknown-wasip1-threads support
+#ifdef __wasi__
+
+#include <CPlatformExecutors.h>
+
+#define CPLATFORM_EXECUTORS_WASI_THREAD_STACK_SIZE (4 * 1024 * 1024)
+
+int CPlatformExecutors_wasi_pthread_create(pthread_t *thread, void *(*start)(void *), void *arg) {
+    pthread_attr_t attr;
+    int result = pthread_attr_init(&attr);
+    if (result != 0) {
+        return result;
+    }
+    result = pthread_attr_setstacksize(&attr, CPLATFORM_EXECUTORS_WASI_THREAD_STACK_SIZE);
+    if (result == 0) {
+        result = pthread_create(thread, &attr, start, arg);
+    }
+    pthread_attr_destroy(&attr);
+    return result;
+}
+
+// wasi-libc declares pthread_setname_np/pthread_getname_np but does not
+// define them (no thread names in WASI): names are accepted and dropped.
+int CPlatformExecutors_pthread_setname_np(pthread_t thread, const char *name) {
+    (void)thread;
+    (void)name;
+    return 0;
+}
+
+int CPlatformExecutors_pthread_getname_np(pthread_t thread, char *name, size_t len) {
+    (void)thread;
+    (void)name;
+    (void)len;
+    return -1;
+}
+
+#endif // __wasi__

@@ -15,7 +15,7 @@
 /// A platform-native task executor.
 @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
 public final class PlatformSerialExecutor: SerialExecutor {
-  #if os(Linux) || os(Android) || os(FreeBSD)
+  #if os(Linux) || os(Android) || os(FreeBSD) || os(WASI)
   typealias Executor = PThreadSerialExecutor
   #elseif canImport(Darwin)
   typealias Executor = DispatchSerialExecutor

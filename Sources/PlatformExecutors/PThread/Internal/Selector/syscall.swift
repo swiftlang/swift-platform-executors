@@ -23,13 +23,15 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
+#if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin) || os(WASI)
 #if canImport(Glibc)
 import Glibc
 #elseif canImport(Musl)
 import Musl
 #elseif canImport(Darwin)
 import Darwin
+#elseif os(WASI)
+import WASILibc
 #else
 #error("The IO module was unable to identify your C library.")
 #endif

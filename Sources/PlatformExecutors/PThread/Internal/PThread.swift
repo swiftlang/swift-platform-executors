@@ -23,9 +23,17 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
+#if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin) || os(WASI)
 
-#if os(Linux) || os(Android)
+#if os(WASI)
+import CPlatformExecutors
+import WASILibc
+import wasi_pthread
+
+private let sys_pthread_getname_np = CPlatformExecutors_pthread_getname_np
+private let sys_pthread_setname_np = CPlatformExecutors_pthread_setname_np
+private typealias ThreadDestructor = @convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?
+#elseif os(Linux) || os(Android)
 import CPlatformExecutors
 
 private let sys_pthread_getname_np = CPlatformExecutors_pthread_getname_np
@@ -60,6 +68,13 @@ private func sysPthread_create(
 ) -> CInt {
   #if canImport(Darwin)
   return pthread_create(handle, nil, destructor, args)
+  #elseif os(WASI)
+  // wasi-libc's `pthread_t` is a pointer; the shim adds the explicit stack
+  // (wasi-libc's default thread stack is small and wasm has no guard page).
+  var handleWASI: pthread_t? = nil
+  let result = CPlatformExecutors_wasi_pthread_create(&handleWASI, destructor, args)
+  handle.pointee = handleWASI
+  return result
   #else
   #if canImport(Musl)
   var handleLinux: OpaquePointer? = nil
@@ -126,7 +141,7 @@ enum PThread {
 
         if let name = name {
           let maximumThreadNameLength: Int
-          #if os(Linux) || os(Android)
+          #if os(Linux) || os(Android) || os(WASI)
           maximumThreadNameLength = 15
           #else
           maximumThreadNameLength = .max
@@ -152,7 +167,12 @@ enum PThread {
   }
 
   static func isCurrentThread(_ thread: PThread.ThreadHandle) -> Bool {
+    #if os(WASI)
+    // wasi-libc's pthread_equal is a function-like macro (pointer identity).
+    return thread == pthread_self()
+    #else
     return pthread_equal(thread, pthread_self()) != 0
+    #endif
   }
 
   static var currentThread: PThread.ThreadHandle {
@@ -160,7 +180,11 @@ enum PThread {
   }
 
   static func compareThreads(_ lhs: PThread.ThreadHandle, _ rhs: PThread.ThreadHandle) -> Bool {
+    #if os(WASI)
+    return lhs == rhs
+    #else
     return pthread_equal(lhs, rhs) != 0
+    #endif
   }
 
   static func joinThread(_ thread: PThread.ThreadHandle) {
