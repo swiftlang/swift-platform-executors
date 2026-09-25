@@ -94,8 +94,8 @@ struct SyscallError: Error, CustomStringConvertible {
 internal func retryingSyscall<T: FixedWidthInteger>(
   blocking: Bool,
   where function: String = #function,
-  _ body: () throws -> T
-) throws -> IOResult<T> {
+  _ body: () throws(SyscallError) -> T
+) throws(SyscallError) -> IOResult<T> {
   while true {
     let res = try body()
     if res == -1 {
@@ -126,9 +126,9 @@ internal func retryingSyscall<T: FixedWidthInteger>(
 @discardableResult
 internal func syscallForbiddingEINVAL<T: FixedWidthInteger>(
   where function: String = #function,
-  _ body: () throws -> T
+  _ body: () throws(SyscallError) -> T
 )
-  throws -> IOResult<T>
+  throws(SyscallError) -> IOResult<T>
 {
   while true {
     let res = try body()
@@ -154,7 +154,7 @@ internal func syscallForbiddingEINVAL<T: FixedWidthInteger>(
 }
 
 @inline(never)
-func close(descriptor: CInt) throws {
+func close(descriptor: CInt) throws(SyscallError) {
   let res = close(descriptor)
   if res == -1 {
     #if os(Windows)
