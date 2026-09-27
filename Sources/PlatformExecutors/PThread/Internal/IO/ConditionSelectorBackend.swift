@@ -46,11 +46,11 @@ struct ConditionSelectorBackend: ~Copyable, IOBackend {
   init() throws {}
 
   #if ExperimentalIO
-  static func attempt(_ operation: IOOperation) throws(IOError) -> Int? {
+  static func attempt(_ operation: IOOperation) -> Result<Int, IOError>? {
     fatalError("No support for IO operations")
   }
 
-  mutating func submit(_ operation: IOOperation, id: IOOperationID) throws(IOError) {
+  mutating func submit(_ operation: IOOperation, id: IOOperationID) {
     fatalError("No support for IO operations")
   }
 
@@ -60,7 +60,7 @@ struct ConditionSelectorBackend: ~Copyable, IOBackend {
 
   mutating func wait(
     strategy: IOWaitStrategy,
-    onCompletion: (IOOperationID, Result<Int, IOError>) -> Void
+    completions: inout [(IOOperationID, Result<Int, IOError>)]
   ) throws {
     try self.blockUntilWork(strategy: strategy)
   }

@@ -26,7 +26,11 @@
 /// // Stop the executor from another context
 /// mainExecutor.stop()
 /// ```
+#if ExperimentalIO
+@available(anyAppleOS 27.0, *)
+#else
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+#endif
 package final class PThreadMainExecutor: SerialExecutor, @unchecked Sendable {
   private let pThreadExecutor: PThreadExecutor!
 
@@ -71,7 +75,11 @@ extension PThreadMainExecutor: SchedulingExecutor {
 }
 #endif
 
+#if ExperimentalIO
+@available(anyAppleOS 27.0, *)
+#else
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+#endif
 extension PThreadMainExecutor: CustomStringConvertible {
   package var description: String {
     "PThreadMainExecutor(\(self.pThreadExecutor.threadDescription))"

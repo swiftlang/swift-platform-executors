@@ -295,11 +295,11 @@ struct KQueueReadinessBackend: ~Copyable {
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
 extension KQueueReadinessBackend: IOBackend {
   // TODO: Implement IO operations
-  static func attempt(_ operation: IOOperation) throws(IOError) -> Int? {
+  static func attempt(_ operation: IOOperation) -> Result<Int, IOError>? {
     fatalError("No support for IO operations")
   }
 
-  mutating func submit(_ operation: IOOperation, id: IOOperationID) throws(IOError) {
+  mutating func submit(_ operation: IOOperation, id: IOOperationID) {
     fatalError("No support for IO operations")
   }
 
@@ -309,7 +309,7 @@ extension KQueueReadinessBackend: IOBackend {
 
   mutating func wait(
     strategy: IOWaitStrategy,
-    onCompletion: (IOOperationID, Result<Int, IOError>) -> Void
+    completions: inout [(IOOperationID, Result<Int, IOError>)]
   ) throws {
     // Waiting is how the executor blocks whether or not it has I/O in flight, so it works already. Nothing can
     // be submitted yet, so there is never a result to report.

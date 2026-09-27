@@ -44,6 +44,34 @@ enum IOOperation {
 /// scheduler enusres that this is actually safe.
 extension IOOperation: @unchecked Sendable {}
 
+#if !os(WASI)
+/// An I/O request.
+///
+/// This is the safe counterpart of ``IOOperation``. We then lower the individual values to pointers
+/// that are pinned to by the operation state to ensure they stay valid for the entire duration.
+@available(anyAppleOS 26.0, *)
+enum IORequest {
+  /// Connects a socket to the given address.
+  case connect(socket: CInt, to: SocketAddress)
+
+  /// Closes a socket.
+  case close(socket: CInt)
+}
+
+@available(anyAppleOS 26.0, *)
+extension IORequest {
+  /// The address that the operation needs to outlive its submission, if it has one.
+  var address: SocketAddress? {
+    switch self {
+    case .connect(_, let address):
+      return address
+    case .close:
+      return nil
+    }
+  }
+}
+#endif
+
 /// The identity of one submitted operation.
 struct IOOperationID: Hashable, Sendable {
   /// The underlying value of this identity.

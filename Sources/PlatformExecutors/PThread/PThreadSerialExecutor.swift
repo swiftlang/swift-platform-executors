@@ -26,7 +26,11 @@
 /// // Stop the executor from another context
 /// mainExecutor.stop()
 /// ```
+#if ExperimentalIO
+@available(anyAppleOS 27.0, *)
+#else
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+#endif
 public final class PThreadSerialExecutor: SerialExecutor, @unchecked Sendable {
   /// This is implicity unwrapped since we need to pass self as the serial executor.
   private var pThreadExecutor: PThreadExecutor!
@@ -120,7 +124,11 @@ public final class PThreadSerialExecutor: SerialExecutor, @unchecked Sendable {
 }
 #endif
 
+#if ExperimentalIO
+@available(anyAppleOS 27.0, *)
+#else
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+#endif
 extension PThreadSerialExecutor: CustomStringConvertible {
   public var description: String {
     "PThreadSerialExecutor(\(self.pThreadExecutor.threadDescription))"

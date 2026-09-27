@@ -29,13 +29,31 @@ let package = Package(
     )
   ],
   dependencies: [
-    .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0")
+    .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0"),
+    .package(
+      url: "https://github.com/apple/swift-collections.git",
+      exact: "1.7.1",
+      traits: [
+        .defaults,
+        .trait(name: "UnstableHashedContainers", condition: .when(traits: ["ExperimentalIO"])),
+      ]
+    ),
   ],
   targets: [
     .target(
       name: "PlatformExecutors",
       dependencies: [
-        .target(name: "CPlatformExecutors")
+        .target(name: "CPlatformExecutors"),
+        .product(
+          name: "BasicContainers",
+          package: "swift-collections",
+          condition: .when(traits: ["ExperimentalIO"])
+        ),
+        .product(
+          name: "DequeModule",
+          package: "swift-collections",
+          condition: .when(traits: ["ExperimentalIO"])
+        ),
       ],
       swiftSettings: swiftSettings
     ),

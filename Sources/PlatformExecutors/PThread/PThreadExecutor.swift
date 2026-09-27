@@ -31,6 +31,19 @@ internal import Synchronization
 import Dispatch
 #endif
 
+#if ExperimentalIO && !os(WASI)
+internal import BasicContainers
+internal import DequeModule
+
+#if canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#elseif canImport(Darwin)
+import Darwin
+#endif
+#endif
+
 /// A task executor that is backed by a single dedicated thread with platform-optimized I/O event handling.
 ///
 /// `PThreadExecutor` provides a high-performance, single-threaded execution environment for Swift Concurrency tasks.
@@ -46,7 +59,12 @@ import Dispatch
 ///     // Work executes on dedicated thread
 /// }
 /// ```
+#if ExperimentalIO
+// The I/O layer keeps continuations in the executor, which need a newer OS.
+@available(anyAppleOS 27.0, *)
+#else
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+#endif
 package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   /// The mechanism that performs this executor's I/O.
   typealias Backend = PlatformIOBackend
@@ -56,6 +74,10 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     var pendingJobPop = false
     /// The condition variable that gets signalled once the thread is stopped.
     var stopConditionVariable: ConditionVariable<Bool>? = nil
+    #if ExperimentalIO && !os(WASI)
+    /// The I/O work that other threads handed to the executor's thread.
+    var submittedIOCommands = UniqueDeque<SubmittedIOCommand>()
+    #endif
     /// This is the queue of enqueued jobs that we have to execute in the order they got enqueued.
     var jobs: NonCopyablePriorityQueue<UnownedJob> = {
       guard #available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *) else {
@@ -89,6 +111,14 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     /// The backing storage of the next executed jobs.
     fileprivate var _nextExecutedJobs: ContiguousArray<UnownedJob>
 
+    #if ExperimentalIO && !os(WASI)
+    /// The backing storage of the next submitted I/O commands.
+    fileprivate var _nextSubmittedIOCommands = UniqueDeque<SubmittedIOCommand>()
+
+    /// The backing storage of the in-flight I/O operations.
+    fileprivate var _inFlightIOOperations = UniqueDictionary<IOOperationID, Resumption>()
+    #endif
+
     fileprivate init(_nextExecutedJobs: consuming ContiguousArray<UnownedJob>) {
       self._nextExecutedJobs = _nextExecutedJobs
     }
@@ -103,7 +133,9 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   private var _threadBoundState: ThreadBoundState
 
   /// The executor's I/O mechanism.
-  private var backend: Backend {
+  ///
+  /// - Note: This may only be used on the executor's thread.
+  internal var _backend: Backend {
     _read {
       assert(self.onExecutor)
       yield self._threadBoundState._backend
@@ -126,6 +158,32 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     }
   }
 
+  #if ExperimentalIO && !os(WASI)
+  /// The I/O commands that are next in line to be applied.
+  private var nextSubmittedIOCommands: UniqueDeque<SubmittedIOCommand> {
+    _read {
+      assert(self.onExecutor)
+      yield self._threadBoundState._nextSubmittedIOCommands
+    }
+    _modify {
+      assert(self.onExecutor)
+      yield &self._threadBoundState._nextSubmittedIOCommands
+    }
+  }
+
+  /// The currently inflight I/O operations.
+  private var inFlightIOOperations: UniqueDictionary<IOOperationID, Resumption> {
+    _read {
+      assert(self.onExecutor)
+      yield self._threadBoundState._inFlightIOOperations
+    }
+    _modify {
+      assert(self.onExecutor)
+      yield &self._threadBoundState._inFlightIOOperations
+    }
+  }
+  #endif
+
   /// The next sequence number of an enqueued jobs.
   private let sequenceNumber = Atomic<UInt64>(0)
 
@@ -136,6 +194,20 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   ///
   /// This is held separately so waking the executor up never touches its thread bound state.
   private let wakeupHandle: Backend.WakeupHandle
+
+  #if ExperimentalIO && !os(WASI)
+  /// The identity of the next submitted operation.
+  ///
+  /// This starts at one since zero is the identity of ``completedRegistration``.
+  private let _nextOperationID = Atomic<UInt>(1)
+  #endif
+
+  #if ExperimentalIO
+  /// The results of the operations that the backend handed over in this tick.
+  ///
+  /// - Note: This may only be used on the executor's thread.
+  private var _completions: [(IOOperationID, Result<Int, IOError>)] = []
+  #endif
 
   /// The amount of jobs to process in a single executor tick.
   /// This is a static var since those optimize better
@@ -148,7 +220,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   }
 
   /// Returns if we are currently running on the executor.
-  private var onExecutor: Bool {
+  internal var onExecutor: Bool {
     return self.thread?.isCurrent ?? false
   }
 
@@ -267,6 +339,12 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
       self._multiThreadedState.withLock { $0.jobs.queue.isEmpty },
       "PThreadExecutor had left over jobs when deiniting."
     )
+    #if ExperimentalIO && !os(WASI)
+    precondition(
+      self._multiThreadedState.withLock { $0.submittedIOCommands.isEmpty },
+      "PThreadExecutor had left over submitted I/O commands when deiniting."
+    )
+    #endif
   }
 
   package func enqueue(_ job: consuming ExecutorJob) {
@@ -374,7 +452,44 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     defer {
       stopConditionVariable?.signal { $0.toggle() }
     }
+
+    // The I/O of a tick comes before its jobs, so the first tick waits with
+    // `.now`. This executor is reachable for enqueues before its thread gets
+    // here, so a job can already be queued, and a first tick that blocked would
+    // relies on the wakeup that enqueuing it sent.
+    var strategy = IOWaitStrategy.now
+
     while true {
+      // Let's wait on the backend until an operation completes, a timer fires
+      // or there is other work to do.
+      #if ExperimentalIO
+      try self._backend.wait(strategy: strategy, completions: &self._completions)
+      #else
+      try self._backend.wait(strategy: strategy)
+      #endif
+
+      // Our backend unblocked and we are going to pop some jobs.
+      // From here until the queue runs empty another thread that enqueues
+      // one does not have to wake the backend.
+      self._multiThreadedState.withLock {
+        $0.pendingJobPop = true
+      }
+
+      #if ExperimentalIO
+      // Resuming a submitter runs its continuation which can lead to another
+      // enqueue. In the future, we might even run the continuations inline by
+      // donating our thread.
+      #if !os(WASI)
+      for (id, result) in self._completions {
+        guard let resumption = self.inFlightIOOperations.removeValue(forKey: id) else {
+          fatalError("The I/O backend reported a result for an operation that is not in flight")
+        }
+        resumption.resume(with: result)
+      }
+      #endif
+      self._completions.removeAll(keepingCapacity: true)
+      #endif
+
       var moreJobsQueued = false
       var nextContinuousClockDeadline: ContinuousClock.Instant?
       var nextSuspendingClockDeadline: SuspendingClock.Instant?
@@ -385,6 +500,11 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
       while true {
         (stopConditionVariable, moreJobsQueued, nextContinuousClockDeadline, nextSuspendingClockDeadline) = self
           ._multiThreadedState.withLock { state in
+            #if ExperimentalIO && !os(WASI)
+            // We got some I/O commands that we should apply.
+            swap(&state.submittedIOCommands, &self.nextSubmittedIOCommands)
+            #endif
+
             // We were flagged to stop so we need to exit this loop
             if let stopConditionVariable = state.stopConditionVariable {
               state.stopConditionVariable = nil
@@ -407,6 +527,11 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
             }
             return (nil, moreJobsQueued, nextContinuousClockDeadline, nextSuspendingClockDeadline)
           }
+
+        #if ExperimentalIO && !os(WASI)
+        // Submit the commands talks to the backend.
+        self.submitIOCommands()
+        #endif
 
         if stopConditionVariable != nil {
           // We need to stop now and break out of the inner loop
@@ -431,28 +556,12 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
         break
       }
 
-      var strategy = self.currentIOWaitStrategy(
+      // How long the next tick waits follows from the jobs this one just ran.
+      strategy = self.currentIOWaitStrategy(
         moreJobsQueued: moreJobsQueued,
         nextContinuousClockDeadline: nextContinuousClockDeadline,
         nextSuspendingClockDeadline: nextSuspendingClockDeadline
       )
-
-      // Let's wait on the backend until an operation completes,
-      // a timer fires or there is other work to do.
-      #if ExperimentalIO
-      try self.backend.wait(strategy: strategy) { id, result in
-        if #available(anyAppleOS 27.0, *) {
-          fatalError("No support for IO operations")
-        }
-      }
-      #else
-      try self.backend.wait(strategy: strategy)
-      #endif
-
-      // Our backend unblocked and we are going to pop some jobs
-      self._multiThreadedState.withLock {
-        $0.pendingJobPop = true
-      }
     }
   }
 
@@ -610,12 +719,258 @@ extension PThreadExecutor: SchedulingExecutor {
 }
 #endif
 
+#if ExperimentalIO
+@available(anyAppleOS 27.0, *)
+#else
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+#endif
 extension PThreadExecutor: CustomStringConvertible {
   package var description: String {
     "PThreadExecutor(\(self.threadDescription))"
   }
 }
+
+#if ExperimentalIO && !os(WASI)
+
+/// I/O work that another thread submitted to the executor's thread.
+@available(anyAppleOS 27.0, *)
+internal enum SubmittedIOCommand: ~Copyable, Sendable {
+  /// Submit the operation to the backend, resuming the given resumption once it completes.
+  case submit(IOOperation, IOOperationID, PThreadExecutor.Resumption)
+
+  /// Cancel the operation with the given identity.
+  case cancel(IOOperationID)
+}
+
+// MARK: - Per-operation state
+
+@available(anyAppleOS 27.0, *)
+extension PThreadExecutor {
+  /// The state that a ``PThreadExecutor`` needs per in-flight operation.
+  // TODO: We should probably introduce a per operation state to make them
+  // as small and focused as possible.
+  package struct OperationState: ~Copyable {
+    /// The address that an operation connects to, or that an accept writes the peer's address into.
+    internal var address = sockaddr_storage()
+
+    /// The length of ``address``.
+    internal var addressLength = socklen_t(MemoryLayout<sockaddr_storage>.size)
+
+    /// Creates the state of an operation.
+    ///
+    /// - Parameter address: The address that the operation needs to outlive its submission, if it has one. The
+    ///   kernel reads this while the submitter is suspended, so it is copied in here rather than pointed at on
+    ///   the submitter's stack.
+    internal init(address: SocketAddress?) {
+      if let address {
+        self.addressLength = address.write(into: &self.address)
+      }
+    }
+  }
+
+  /// What an in-flight operation resumes when its result arrives.
+  internal enum Resumption: ~Copyable {
+    /// Resumes with a connected socket.
+    case connection(Continuation<TCPConnection, IOError>, socket: CInt)
+
+    /// Resumes with void, so the result only reports whether the operation succeeded.
+    case void(Continuation<Void, IOError>)
+
+    /// Resumes the continuation with the result that the backend reported.
+    internal consuming func resume(with result: Result<Int, IOError>) {
+      switch consume self {
+      case .connection(let continuation, let socket):
+        switch result {
+        case .success:
+          continuation.resume(returning: TCPConnection(fileDescriptor: socket))
+        case .failure(let error):
+          // We created the socket so we have to close it
+          // TODO: In the future with io_uring we need to go through the backend
+          // since io_uring should create the socket with `IORING_OP_SOCKET`.
+          try? StreamSocketSyscall.close(socket)
+          continuation.resume(throwing: error)
+        }
+
+      case .void(let continuation):
+        switch result {
+        case .success:
+          continuation.resume()
+        case .failure(let error):
+          continuation.resume(throwing: error)
+        }
+      }
+    }
+  }
+
+  /// The registration of an operation that completed synchronously.
+  internal static var completedRegistration: OperationRegistration {
+    OperationRegistration(id: 0)
+  }
+}
+
+// MARK: - Submitting
+
+@available(anyAppleOS 27.0, *)
+extension PThreadExecutor {
+  /// Submits the operation and holds on to what to resume once it completes.
+  ///
+  /// - Parameters:
+  ///   - resumption: What to resume once the operation completes.
+  ///   - request: The operation to perform.
+  ///   - state: The state that the submitter allocated.
+  /// - Returns: The registration of the operation.
+  internal func submit(
+    _ resumption: consuming Resumption,
+    request: IORequest,
+    state: inout OutputSpan<OperationState>
+  ) -> OperationRegistration {
+    precondition(
+      !state.isFull,
+      "The operation state of a PThreadExecutor needs capacity for one element"
+    )
+    // Everything the kernel reads is copied into the state to guarntee stable addresses.
+    state.append(OperationState(address: request.address))
+
+    let operation = Self.pin(request, in: &state)
+
+    // We first try to attempt the operation if it can be done synchronously.
+    if let result = Backend.attempt(operation) {
+      resumption.resume(with: result)
+      return Self.completedRegistration
+    }
+
+    let id = IOOperationID(
+      rawValue: self._nextOperationID.wrappingAdd(1, ordering: .relaxed).oldValue
+    )
+
+    // If we are on the executor we can submit right away otherwise
+    // we have to enqueue it and let the next tick pick it up.
+    if self.onExecutor {
+      let rejected = self.inFlightIOOperations.insertValue(
+        resumption,
+        forKey: id
+      )
+      guard case .none = consume rejected else {
+        fatalError("An operation was submitted with the identity of one that is still in flight")
+      }
+      self._backend.submit(operation, id: id)
+    } else {
+      self.enqueue(.submit(operation, id, resumption))
+    }
+
+    return OperationRegistration(id: id.rawValue)
+  }
+
+  /// Pins everything that is needed in the request to the state to ensure we have a stable address.
+  ///
+  /// - Important: This has to pin every pointer that is passed to the kernel so it stays stable for
+  /// the entire duration of the operation.
+  ///
+  /// - Parameters:
+  ///   - request: The request to lower.
+  ///   - state: The state that the submitter allocated.
+  /// - Returns: The operation to submit.
+  private static func pin(
+    _ request: IORequest,
+    in state: inout OutputSpan<OperationState>
+  ) -> IOOperation {
+    var states = state.mutableSpan
+    return states.withUnsafeMutableBufferPointer { buffer in
+      let statePointer = buffer.baseAddress! + (buffer.count - 1)
+      switch request {
+      case .connect(let socket, _):
+        return .connect(
+          socket: socket,
+          address: UnsafePointer(statePointer.pointee.addressPointer),
+          addressLength: statePointer.pointee.addressLength
+        )
+      case .close(let socket):
+        return .close(socket: socket)
+      }
+    }
+  }
+
+  /// Hands the work to the executor's thread.
+  private func enqueue(_ submitted: consuming SubmittedIOCommand) {
+    var submitted = Optional(consume submitted)
+    self.modifyMultiThreadedStateAndWakeUpIfNeeded { state in
+      state.submittedIOCommands.append(submitted.take()!)
+    }
+  }
+
+  package func cancel(_ registration: OperationRegistration) {
+    guard registration.id != 0 else {
+      // The operation completed before it was submitted
+      // so there is nothing to cancel.
+      return
+    }
+
+    let id = IOOperationID(rawValue: registration.id)
+
+    // If we are on the executor and the operation reached the backend we can
+    // cancel right away. Otherwise we have to enqueue it and let the next tick pick it up.
+    if self.onExecutor && self.inFlightIOOperations.containsKey(id) {
+      self._backend.cancel(id)
+    } else {
+      self.enqueue(.cancel(id))
+    }
+  }
+
+  package func escalatePriority(
+    of registration: OperationRegistration,
+    to newPriority: TaskPriority
+  ) {
+    // Neither a readiness based nor a completion based mechanism
+    // can re-prioritize an operation that is already submitted,
+    // so there is nothing to do here.
+  }
+}
+
+// MARK: - Running on the executor's thread
+
+@available(anyAppleOS 27.0, *)
+extension PThreadExecutor {
+  /// Submits the I/O commands that other threads enqueued over to this thread.
+  private func submitIOCommands() {
+    // The commands are applied in the order they were enqueued.
+    while let submitted = self.nextSubmittedIOCommands.popFirst() {
+      switch consume submitted {
+      case .submit(let operation, let id, let resumption):
+        let rejected = self.inFlightIOOperations.insertValue(
+          resumption,
+          forKey: id
+        )
+        guard case .none = consume rejected else {
+          fatalError("An operation was submitted with the identity of one that is still in flight")
+        }
+        self._backend.submit(operation, id: id)
+      case .cancel(let id):
+        // A cancellation can arrive after its operation completed
+        // so we filter out anything that is no longer in-flight.
+        if self.inFlightIOOperations.containsKey(id) {
+          self._backend.cancel(id)
+        }
+      }
+    }
+  }
+}
+
+// MARK: - Addresses in the operation state
+
+@available(anyAppleOS 27.0, *)
+extension PThreadExecutor.OperationState {
+  /// A pointer to the address storage of this state.
+  ///
+  /// - Important: This is only safe if the memory address is actually pinned.
+  fileprivate var addressPointer: UnsafeMutablePointer<sockaddr> {
+    mutating get {
+      withUnsafeMutablePointer(to: &self.address) {
+        UnsafeMutableRawPointer($0).assumingMemoryBound(to: sockaddr.self)
+      }
+    }
+  }
+}
+#endif
 
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
 private struct NonCopyablePriorityQueue<T>: ~Copyable {

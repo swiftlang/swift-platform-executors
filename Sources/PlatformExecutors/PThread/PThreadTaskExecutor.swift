@@ -35,7 +35,11 @@ internal import Synchronization
 ///     return await [result1, result2, result3]
 /// }
 /// ```
+#if ExperimentalIO
+@available(anyAppleOS 27.0, *)
+#else
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+#endif
 public final class PThreadTaskExecutor: TaskExecutor {
   /// The executor's name.
   private let name: String
@@ -159,7 +163,11 @@ public final class PThreadTaskExecutor: TaskExecutor {
 }
 #endif
 
+#if ExperimentalIO
+@available(anyAppleOS 27.0, *)
+#else
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+#endif
 extension PThreadTaskExecutor: CustomStringConvertible {
   public var description: String {
     "PThreadPoolExecutor(\(self.name))"

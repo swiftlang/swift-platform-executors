@@ -50,14 +50,14 @@ protocol IOBackend: ~Copyable {
   ///
   /// - Parameter operation: The operation to perform.
   /// - Returns: The result of the operation, or `nil` if it cannot be performed without waiting.
-  static func attempt(_ operation: IOOperation) throws(IOError) -> Int?
+  static func attempt(_ operation: IOOperation) -> Result<Int, IOError>?
 
   /// Submits an operation whose result is reported later.
   ///
   /// - Parameters:
   ///   - operation: The operation to submit.
   ///   - id: The identity to report the result of the operation with.
-  mutating func submit(_ operation: IOOperation, id: IOOperationID) throws(IOError)
+  mutating func submit(_ operation: IOOperation, id: IOOperationID)
 
   /// Cancels a submitted operation.
   ///
@@ -66,14 +66,18 @@ protocol IOBackend: ~Copyable {
   /// - Parameter id: The identity of the operation to cancel.
   mutating func cancel(_ id: IOOperationID)
 
-  /// Waits for work to become available and reports every operation that completed.
+  /// Waits for work to become available and hands over every operation that completed.
+  ///
+  /// The results are moved into the caller's array rather than reported through a closure. Resuming a submitter
+  /// runs its continuation, which is free to submit to this backend again, and a backend cannot be re-entered
+  /// while one of its `mutating` methods is on the stack.
   ///
   /// - Parameters:
   ///   - strategy: How long to wait for work to become available.
-  ///   - onCompletion: The closure called with the result of every operation that completed.
+  ///   - completions: The array to move the results into. It has to be empty.
   mutating func wait(
     strategy: IOWaitStrategy,
-    onCompletion: (IOOperationID, Result<Int, IOError>) -> Void
+    completions: inout [(IOOperationID, Result<Int, IOError>)]
   ) throws
   #else
   /// Waits for work to become available.
