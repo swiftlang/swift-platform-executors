@@ -54,6 +54,62 @@ int CPlatformExecutors_pthread_getname_np(pthread_t thread, char *name, size_t l
 
 #endif
 
+// Thread stack size support (all pthread platforms)
+#if !defined(_WIN32)
+
+#include <CPlatformExecutors.h>
+#include <limits.h>
+#include <pthread.h>
+#include <stdint.h>
+#include <unistd.h>
+
+size_t CPlatformExecutors_pthread_normalized_stack_size(size_t requested) {
+#ifdef PTHREAD_STACK_MIN
+    // With _GNU_SOURCE on glibc >= 2.34 this is a sysconf call, not a constant
+    size_t minimum = (size_t)PTHREAD_STACK_MIN;
+#else
+    size_t minimum = 16 * 1024;
+#endif
+    if (requested < minimum) {
+        requested = minimum;
+    }
+    long pageSize = sysconf(_SC_PAGESIZE);
+    if (pageSize > 0) {
+        size_t page = (size_t)pageSize;
+        size_t remainder = requested % page;
+        if (remainder != 0) {
+            if (requested > SIZE_MAX - (page - remainder)) {
+                // Round down instead of overflowing; pthread_create will fail
+                // on such a size anyway
+                return requested - remainder;
+            }
+            requested += page - remainder;
+        }
+    }
+    return requested;
+}
+
+size_t CPlatformExecutors_pthread_current_stack_size(void) {
+#if defined(__APPLE__)
+    return pthread_get_stacksize_np(pthread_self());
+#elif defined(__linux__)
+    pthread_attr_t attr;
+    if (pthread_getattr_np(pthread_self(), &attr) != 0) {
+        return 0;
+    }
+    size_t size = 0;
+    if (pthread_attr_getstacksize(&attr, &size) != 0) {
+        size = 0;
+    }
+    pthread_attr_destroy(&attr);
+    return size;
+#else
+    return 0;
+#endif
+}
+
+#endif // !defined(_WIN32)
+
 // Dispatch executor support (Darwin only)
 #ifdef __APPLE__
 
@@ -72,13 +128,16 @@ void CPlatformExecutors_dispatchMain(void) {
 
 #define CPLATFORM_EXECUTORS_WASI_THREAD_STACK_SIZE (4 * 1024 * 1024)
 
-int CPlatformExecutors_wasi_pthread_create(pthread_t *thread, void *(*start)(void *), void *arg) {
+int CPlatformExecutors_wasi_pthread_create(pthread_t *thread, void *(*start)(void *), void *arg, size_t stackSize) {
     pthread_attr_t attr;
     int result = pthread_attr_init(&attr);
     if (result != 0) {
         return result;
     }
-    result = pthread_attr_setstacksize(&attr, CPLATFORM_EXECUTORS_WASI_THREAD_STACK_SIZE);
+    if (stackSize == 0) {
+        stackSize = CPLATFORM_EXECUTORS_WASI_THREAD_STACK_SIZE;
+    }
+    result = pthread_attr_setstacksize(&attr, stackSize);
     if (result == 0) {
         result = pthread_create(thread, &attr, start, arg);
     }

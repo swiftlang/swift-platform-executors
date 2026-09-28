@@ -50,7 +50,8 @@ let package = Package(
     .testTarget(
       name: "PlatformExecutorsTests",
       dependencies: [
-        .target(name: "PlatformExecutors")
+        .target(name: "PlatformExecutors"),
+        .target(name: "CPlatformExecutors"),
       ]
     ),
 

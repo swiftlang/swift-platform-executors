@@ -36,10 +36,15 @@ int CPlatformExecutors_pthread_getname_np(pthread_t thread, char *name, size_t l
 #include <stddef.h>
 #include <time.h>
 
+#if !defined(_WIN32)
+#include <stddef.h>
+#endif
+
+
 // Creates a thread with an explicit stack: wasi-libc's default thread stack
 // is small and there is no guard page on wasm, so an executor thread gets a
-// 4 MiB stack of its own.
-int CPlatformExecutors_wasi_pthread_create(pthread_t *thread, void *(*start)(void *), void *arg);
+// 4 MiB stack of its own unless `stackSize` is non-zero
+int CPlatformExecutors_wasi_pthread_create(pthread_t *thread, void *(*start)(void *), void *arg, size_t stackSize);
 
 // The realtime clock for pthread_cond_timedwait. CLOCK_REALTIME is a
 // pointer macro in wasi-libc, which Swift cannot import; the constant can be.
@@ -49,6 +54,16 @@ static const clockid_t CPlatformExecutors_CLOCK_REALTIME = CLOCK_REALTIME;
 // (no-ops: wasi-libc declares but does not define them).
 int CPlatformExecutors_pthread_setname_np(pthread_t thread, const char *name);
 int CPlatformExecutors_pthread_getname_np(pthread_t thread, char *name, size_t len);
+#endif
+
+#if !defined(_WIN32)
+// Clamps a requested thread stack size to at least PTHREAD_STACK_MIN and
+// rounds it up to a multiple of the page size, as pthread_attr_setstacksize
+// requires on some platforms (e.g. Darwin)
+size_t CPlatformExecutors_pthread_normalized_stack_size(size_t requested);
+
+// The stack size of the calling thread, or 0 if it cannot be determined
+size_t CPlatformExecutors_pthread_current_stack_size(void);
 #endif
 
 #ifdef __APPLE__

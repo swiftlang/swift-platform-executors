@@ -42,11 +42,16 @@ public final class PThreadSerialExecutor: SerialExecutor, @unchecked Sendable {
   /// begins processing jobs after initialization completes. The background thread continues running until
   /// the executor is deallocated.
   ///
-  /// - Parameter name: The name assigned to the executor's background thread. This name appears in debugging
-  ///   tools and crash reports for easier identification.
-  public init(name: String) {
+  /// - Parameters:
+  ///   - name: The name assigned to the executor's background thread. This name appears in debugging
+  ///     tools and crash reports for easier identification.
+  ///   - stackSize: The stack size in bytes of the executor's background thread, or `nil` to use the
+  ///     platform's default thread stack size. Must be greater than 0. The value is rounded up to a multiple
+  ///     of the page size and to at least the platform's minimum thread stack size.
+  public init(name: String, stackSize: Int? = nil) {
     self.pThreadExecutor = PThreadExecutor(
       name: name,
+      stackSize: stackSize,
       serialExecutor: self.asUnownedSerialExecutor(),
       taskExecutor: nil
     )
@@ -60,15 +65,20 @@ public final class PThreadSerialExecutor: SerialExecutor, @unchecked Sendable {
   ///
   /// - Parameters:
   ///   - name: The name assigned to the executor's background thread.
+  ///   - stackSize: The stack size in bytes of the executor's background thread, or `nil` to use the
+  ///     platform's default thread stack size. Must be greater than 0. The value is rounded up to a multiple
+  ///     of the page size and to at least the platform's minimum thread stack size.
   ///   - body: A closure that gets access to the serial executor for the duration of execution.
   /// - Returns: The value returned by the body closure.
   public nonisolated(nonsending) static func withExecutor<Return, Failure: Error>(
     name: String,
+    stackSize: Int? = nil,
     body: (PThreadSerialExecutor) async throws(Failure) -> Return
   ) async throws(Failure) -> Return {
     do {
       return try await self._withExecutor(
         name: name,
+        stackSize: stackSize,
         serialExecutor: nil,
         body: body
       )
@@ -81,12 +91,14 @@ public final class PThreadSerialExecutor: SerialExecutor, @unchecked Sendable {
   // and it is not able to reason that the thrown error inside asyncDo is a Failure
   internal nonisolated(nonsending) static func _withExecutor<Return>(
     name: String,
+    stackSize: Int? = nil,
     serialExecutor: UnownedSerialExecutor?,
     body: (PThreadSerialExecutor) async throws -> Return
   ) async rethrows -> Return {
     let executor = PThreadSerialExecutor()
     executor.pThreadExecutor = PThreadExecutor(
       name: name,
+      stackSize: stackSize,
       serialExecutor: serialExecutor ?? executor.asUnownedSerialExecutor(),
       taskExecutor: nil
     )

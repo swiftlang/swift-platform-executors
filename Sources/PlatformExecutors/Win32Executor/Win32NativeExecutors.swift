@@ -742,10 +742,27 @@ public final class Win32ThreadPoolExecutor: TaskExecutor, @unchecked Sendable {
   ///   - poolSize: The maximum number of threads in the pool.  Must
   ///               be greater than 0.
   ///
-  public convenience init(poolSize: Int) {
+  ///   - stackSize: The stack size in bytes reserved for each thread in
+  ///                the pool, or `nil` to use the process default.
+  ///                Must be greater than 0.
+  ///
+  public convenience init(poolSize: Int, stackSize: Int? = nil) {
     #if canImport(WinSDK)
     let pool = CreateThreadpool(nil)
     SetThreadpoolThreadMaximum(pool, DWORD(poolSize))
+    if let stackSize {
+      precondition(stackSize > 0, "Stack size must be greater than 0")
+      // A commit of 0 keeps the process default commit size
+      var stackInformation = TP_POOL_STACK_INFORMATION(
+        StackReserve: SIZE_T(stackSize),
+        StackCommit: 0
+      )
+      let bRet = unsafe SetThreadpoolStackInformation(pool, &stackInformation)
+      if !bRet {
+        let dwError = GetLastError()
+        fatalError("SetThreadpoolStackInformation() failed: error 0x\(String(dwError, radix: 16))")
+      }
+    }
     self.init(pool: pool)
     #else
     self.init(pool: nil)
