@@ -82,7 +82,8 @@ struct PThreadExecutorTests {
   @Test
   @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
   func stackSizeIsRoundedUp() async {
-    // Not a page multiple and below PTHREAD_STACK_MIN on every platform
+    // Not a page multiple and below the 128 KiB floor, which is enforced
+    // because PTHREAD_STACK_MIN is too small to run Swift code on x86_64 glibc
     let stackSize = 1001
     await PThreadTaskExecutor.withExecutor(
       name: "TinyStack",
@@ -90,7 +91,7 @@ struct PThreadExecutorTests {
       stackSize: stackSize
     ) { executor in
       await Task(executorPreference: executor) {
-        #expect(CPlatformExecutors_pthread_current_stack_size() >= stackSize)
+        #expect(CPlatformExecutors_pthread_current_stack_size() >= 128 * 1024)
       }.value
     }
   }

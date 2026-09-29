@@ -47,7 +47,7 @@ public final class PThreadSerialExecutor: SerialExecutor, @unchecked Sendable {
   ///     tools and crash reports for easier identification.
   ///   - stackSize: The stack size in bytes of the executor's background thread, or `nil` to use the
   ///     platform's default thread stack size. Must be greater than 0. The value is rounded up to a multiple
-  ///     of the page size and to at least the platform's minimum thread stack size.
+  ///     of the page size and to at least 128 KiB, or the platform's minimum thread stack size if larger.
   public init(name: String, stackSize: Int? = nil) {
     self.pThreadExecutor = PThreadExecutor(
       name: name,
@@ -67,7 +67,7 @@ public final class PThreadSerialExecutor: SerialExecutor, @unchecked Sendable {
   ///   - name: The name assigned to the executor's background thread.
   ///   - stackSize: The stack size in bytes of the executor's background thread, or `nil` to use the
   ///     platform's default thread stack size. Must be greater than 0. The value is rounded up to a multiple
-  ///     of the page size and to at least the platform's minimum thread stack size.
+  ///     of the page size and to at least 128 KiB, or the platform's minimum thread stack size if larger.
   ///   - body: A closure that gets access to the serial executor for the duration of execution.
   /// - Returns: The value returned by the body closure.
   public nonisolated(nonsending) static func withExecutor<Return, Failure: Error>(

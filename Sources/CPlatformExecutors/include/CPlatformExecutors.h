@@ -57,9 +57,11 @@ int CPlatformExecutors_pthread_getname_np(pthread_t thread, char *name, size_t l
 #endif
 
 #if !defined(_WIN32)
-// Clamps a requested thread stack size to at least PTHREAD_STACK_MIN and
-// rounds it up to a multiple of the page size, as pthread_attr_setstacksize
-// requires on some platforms (e.g. Darwin)
+#include <stddef.h>
+
+// Clamps a requested thread stack size to at least 128 KiB (or
+// PTHREAD_STACK_MIN if larger) and rounds it up to a multiple of the page
+// size, as pthread_attr_setstacksize requires on some platforms (e.g. Darwin)
 size_t CPlatformExecutors_pthread_normalized_stack_size(size_t requested);
 
 // The stack size of the calling thread, or 0 if it cannot be determined

@@ -71,6 +71,10 @@ struct Thread: ~Copyable, @unchecked Sendable {
     stackSize: Int? = nil,
     body: @escaping () -> Void
   ) -> Thread {
+    if let stackSize {
+      precondition(stackSize > 0, "Stack size must be greater than 0")
+    }
+
     var handle: PThread.ThreadHandle? = nil
 
     // Store everything we want to pass into the c function in a Box so we

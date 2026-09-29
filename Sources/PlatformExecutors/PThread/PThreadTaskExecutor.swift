@@ -58,7 +58,7 @@ public final class PThreadTaskExecutor: TaskExecutor {
   ///   If `nil` is passed then the systems available core count will be used. Defaults to `nil`.
   ///   - stackSize: The stack size in bytes of each thread in the pool, or `nil` to use the platform's default
   ///     thread stack size. Must be greater than 0. The value is rounded up to a multiple of the page size and
-  ///     to at least the platform's minimum thread stack size.
+  ///     to at least 128 KiB, or the platform's minimum thread stack size if larger.
   ///   - taskExecutor: The task executor to use in-case this executor gets wrapped.
   internal init(
     name: String,
@@ -69,9 +69,6 @@ public final class PThreadTaskExecutor: TaskExecutor {
     let poolSize = poolSize ?? SystemCoreCount.coreCount
     self.name = "\(name)-size(\(poolSize))"
     precondition(poolSize > 0, "The pool size must be positive")
-    if let stackSize {
-      precondition(stackSize > 0, "Stack size must be greater than 0")
-    }
     var executors = [PThreadExecutor]()
     executors.reserveCapacity(poolSize)
     let taskExecutor = taskExecutor ?? self.asUnownedTaskExecutor()
@@ -101,7 +98,7 @@ public final class PThreadTaskExecutor: TaskExecutor {
   ///     If `nil` is passed then the systems available core count will be used. Defaults to `nil`.
   ///   - stackSize: The stack size in bytes of each thread in the pool, or `nil` to use the platform's default
   ///     thread stack size. Must be greater than 0. The value is rounded up to a multiple of the page size and
-  ///     to at least the platform's minimum thread stack size.
+  ///     to at least 128 KiB, or the platform's minimum thread stack size if larger.
   ///   - body: A closure that gets access to the pooled task executor for the duration of execution.
   /// - Returns: The value returned by the body closure.
   public nonisolated(nonsending) static func withExecutor<Return, Failure: Error>(

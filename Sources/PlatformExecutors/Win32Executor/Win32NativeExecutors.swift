@@ -744,7 +744,11 @@ public final class Win32ThreadPoolExecutor: TaskExecutor, @unchecked Sendable {
   ///
   ///   - stackSize: The stack size in bytes reserved for each thread in
   ///                the pool, or `nil` to use the process default.
-  ///                Must be greater than 0.
+  ///                Must be greater than 0. This only controls the amount
+  ///                of address space reserved for the stack; the initial
+  ///                commit size is left at the process default, the same
+  ///                as it would be for a thread created without an
+  ///                explicit stack size.
   ///
   public convenience init(poolSize: Int, stackSize: Int? = nil) {
     #if canImport(WinSDK)
@@ -752,7 +756,10 @@ public final class Win32ThreadPoolExecutor: TaskExecutor, @unchecked Sendable {
     SetThreadpoolThreadMaximum(pool, DWORD(poolSize))
     if let stackSize {
       precondition(stackSize > 0, "Stack size must be greater than 0")
-      // A commit of 0 keeps the process default commit size
+      // We only want to change how much address space is reserved for the
+      // stack, not the initial commit; leaving StackCommit at 0 tells the
+      // thread pool to use its normal default commit size, matching what a
+      // thread without an explicit stack size would get.
       var stackInformation = TP_POOL_STACK_INFORMATION(
         StackReserve: SIZE_T(stackSize),
         StackCommit: 0

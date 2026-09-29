@@ -63,12 +63,18 @@ int CPlatformExecutors_pthread_getname_np(pthread_t thread, char *name, size_t l
 #include <stdint.h>
 #include <unistd.h>
 
+#define CPLATFORM_EXECUTORS_MIN_THREAD_STACK_SIZE (128 * 1024)
+
 size_t CPlatformExecutors_pthread_normalized_stack_size(size_t requested) {
+    // PTHREAD_STACK_MIN is only enough for libc itself (16 KiB on x86_64
+    // glibc), too little to run Swift code on the thread, so enforce a
+    // floor of our own as well
+    size_t minimum = CPLATFORM_EXECUTORS_MIN_THREAD_STACK_SIZE;
 #ifdef PTHREAD_STACK_MIN
     // With _GNU_SOURCE on glibc >= 2.34 this is a sysconf call, not a constant
-    size_t minimum = (size_t)PTHREAD_STACK_MIN;
-#else
-    size_t minimum = 16 * 1024;
+    if ((size_t)PTHREAD_STACK_MIN > minimum) {
+        minimum = (size_t)PTHREAD_STACK_MIN;
+    }
 #endif
     if (requested < minimum) {
         requested = minimum;
