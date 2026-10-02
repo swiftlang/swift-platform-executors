@@ -17,11 +17,15 @@
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 #include <sys/timerfd.h>
+#include <sys/socket.h>
 #include <pthread.h>
 #include <errno.h>
 
 int CPlatformExecutors_pthread_setname_np(pthread_t thread, const char *name);
 int CPlatformExecutors_pthread_getname_np(pthread_t thread, char *name, size_t len);
+
+// `accept4` is a GNU extension that the Glibc module does not export.
+int CPlatformExecutors_accept4(int socket, struct sockaddr *address, socklen_t *address_length, int flags);
 
 #endif
 

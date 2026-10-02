@@ -14,6 +14,11 @@
 
 #include <CPlatformExecutors.h>
 #include <pthread.h>
+#include <sys/socket.h>
+
+int CPlatformExecutors_accept4(int socket, struct sockaddr *address, socklen_t *address_length, int flags) {
+    return accept4(socket, address, address_length, flags);
+}
 
 int CPlatformExecutors_pthread_setname_np(pthread_t thread, const char *name) {
     return pthread_setname_np(thread, name);

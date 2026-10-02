@@ -35,15 +35,31 @@ enum IOOperation {
   /// Connects a socket to the address in the given storage.
   case connect(socket: CInt, address: UnsafePointer<sockaddr>, addressLength: socklen_t)
 
+  /// Accepts the next connection of a listening socket.
+  // TODO: We need address storage to write the accepted addr into.
+  case accept(socket: CInt)
+
+  /// Reads from a socket into the given buffer.
+  case read(socket: CInt, buffer: UnsafeMutableRawBufferPointer)
+
+  /// Writes the given buffer to a socket.
+  case write(socket: CInt, buffer: UnsafeRawBufferPointer)
+
+  /// Shuts down the given directions of a socket.
+  case shutdown(socket: CInt, direction: SocketShutdownDirection)
+
   /// Closes a socket.
   case close(socket: CInt)
 
   /// The file descriptor that this operation is performed on.
   var fileDescriptor: CInt {
     switch self {
-    case .connect(let fileDescriptor, _, _):
-      return fileDescriptor
-    case .close(let fileDescriptor):
+    case .connect(let fileDescriptor, _, _),
+      .accept(let fileDescriptor),
+      .read(let fileDescriptor, _),
+      .write(let fileDescriptor, _),
+      .shutdown(let fileDescriptor, _),
+      .close(let fileDescriptor):
       return fileDescriptor
     }
   }
@@ -64,6 +80,24 @@ enum IORequest {
   /// Connects a socket to the given address.
   case connect(socket: CInt, to: SocketAddress)
 
+  /// Accepts the next connection of a listening socket.
+  case accept(socket: CInt)
+
+  /// Reads from a socket into the given buffer.
+  ///
+  /// The buffer is the caller's, so it has to stay valid until the operation completed, which is the contract
+  /// of ``TCPSocketOperationScheduler/submitRead(_:state:connection:into:)``.
+  case read(socket: CInt, buffer: UnsafeMutableRawBufferPointer)
+
+  /// Writes the given buffer to a socket.
+  ///
+  /// The buffer is the caller's, so it has to stay valid until the operation completed, which is the contract
+  /// of ``TCPSocketOperationScheduler/submitWrite(_:state:connection:from:)``.
+  case write(socket: CInt, buffer: UnsafeRawBufferPointer)
+
+  /// Shuts down the given directions of a socket.
+  case shutdown(socket: CInt, direction: SocketShutdownDirection)
+
   /// Closes a socket.
   case close(socket: CInt)
 }
@@ -75,7 +109,7 @@ extension IORequest {
     switch self {
     case .connect(_, let address):
       return address
-    case .close:
+    case .accept, .read, .write, .shutdown, .close:
       return nil
     }
   }

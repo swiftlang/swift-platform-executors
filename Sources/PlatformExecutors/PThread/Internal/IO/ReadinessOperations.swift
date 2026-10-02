@@ -155,6 +155,35 @@ struct ReadinessOperations: ~Copyable {
         return .failure(error)
       }
 
+    case .accept(let socket):
+      do {
+        return try StreamSocketSyscall.accept(socket).map { .success(Int($0)) }
+      } catch {
+        return .failure(error)
+      }
+
+    case .read(let socket, let buffer):
+      do {
+        return try StreamSocketSyscall.receive(socket, into: buffer).map { .success($0) }
+      } catch {
+        return .failure(error)
+      }
+
+    case .write(let socket, let buffer):
+      do {
+        return try StreamSocketSyscall.send(socket, from: buffer).map { .success($0) }
+      } catch {
+        return .failure(error)
+      }
+
+    case .shutdown(let socket, let direction):
+      do {
+        try StreamSocketSyscall.shutdown(socket, direction: direction)
+        return .success(0)
+      } catch {
+        return .failure(error)
+      }
+
     case .close:
       // A close has to be ordered against the operations that are still waiting
       // on the socket, and only the  executor's thread knows about those, so a
@@ -186,10 +215,12 @@ struct ReadinessOperations: ~Copyable {
   /// The direction that an operation waits for.
   private static func direction(of operation: IOOperation) -> ReadinessInterest {
     switch operation {
-    case .connect:
+    case .connect, .write:
       return .write
-    case .close:
-      // A close never waits for readiness.
+    case .accept, .read:
+      return .read
+    case .shutdown, .close:
+      // Neither waits for readiness.
       return .read
     }
   }
@@ -219,7 +250,16 @@ struct ReadinessOperations: ~Copyable {
       }
       return nil
 
-    case .connect:
+    case .shutdown(let socket, let direction):
+      do {
+        try StreamSocketSyscall.shutdown(socket, direction: direction)
+        self.resolve(id, with: .success(0))
+      } catch {
+        self.resolve(id, with: .failure(error))
+      }
+      return nil
+
+    case .connect, .accept, .read, .write:
       break
     }
 

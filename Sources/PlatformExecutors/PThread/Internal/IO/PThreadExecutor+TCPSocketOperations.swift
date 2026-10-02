@@ -72,7 +72,7 @@ extension PThreadExecutor {
 // MARK: - TCP socket operations
 
 @available(anyAppleOS 27.0, *)
-extension PThreadExecutor {
+extension PThreadExecutor: TCPSocketOperationScheduler {
   package func submitConnect(
     _ continuation: consuming Continuation<TCPConnection, IOError>,
     state: inout OutputSpan<OperationState>,
@@ -119,6 +119,66 @@ extension PThreadExecutor {
 
     continuation.resume(returning: TCPListener(fileDescriptor: socket))
     return Self.completedRegistration
+  }
+
+  package func submitAccept(
+    _ continuation: consuming Continuation<TCPConnection, IOError>,
+    state: inout OutputSpan<OperationState>,
+    listener: borrowing TCPListener
+  ) -> OperationRegistration {
+    self.submit(
+      .acceptedConnection(continuation),
+      request: .accept(socket: listener.fileDescriptor),
+      state: &state
+    )
+  }
+
+  package func submitRead(
+    _ continuation: consuming Continuation<Int, IOError>,
+    state: inout OutputSpan<OperationState>,
+    connection: borrowing TCPConnection,
+    into buffer: inout OutputRawSpan
+  ) -> OperationRegistration {
+    // The bytes are read into the free capacity of the buffer. The operation
+    // completes afterwards when we have no access to the output span anymore.
+    // TODO: We should try out async entrypoints for the submit methods.
+    let freeCapacity = buffer.withUnsafeMutableBytes { bytes, initializedCount in
+      UnsafeMutableRawBufferPointer(rebasing: bytes[initializedCount...])
+    }
+
+    return self.submit(
+      .byteCount(continuation),
+      request: .read(socket: connection.fileDescriptor, buffer: freeCapacity),
+      state: &state
+    )
+  }
+
+  package func submitWrite(
+    _ continuation: consuming Continuation<Int, IOError>,
+    state: inout OutputSpan<OperationState>,
+    connection: borrowing TCPConnection,
+    from buffer: RawSpan
+  ) -> OperationRegistration {
+    let bytes = buffer.withUnsafeBytes { $0 }
+
+    return self.submit(
+      .byteCount(continuation),
+      request: .write(socket: connection.fileDescriptor, buffer: bytes),
+      state: &state
+    )
+  }
+
+  package func submitShutdown(
+    _ continuation: consuming Continuation<Void, IOError>,
+    state: inout OutputSpan<OperationState>,
+    connection: borrowing TCPConnection,
+    direction: SocketShutdownDirection
+  ) -> OperationRegistration {
+    self.submit(
+      .void(continuation),
+      request: .shutdown(socket: connection.fileDescriptor, direction: direction),
+      state: &state
+    )
   }
 
   package func submitClose(
