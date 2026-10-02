@@ -29,7 +29,7 @@ enum IOOperation {}
 /// An I/O operation, described independently of any mechanism.
 ///
 /// - Important: Every pointer in here has to stay valid until the operation completes or is cancelled. A
-/// readiness based mechanism reads the memory when the socket becomes ready and a completion based one lets
+/// readiness based mechanism reads the memory when the file descriptor becomes ready and a completion based one lets
 /// the kernel read and write it for the whole time the operation is in flight.
 enum IOOperation {
   /// Connects a socket to the address in the given storage.
@@ -37,6 +37,16 @@ enum IOOperation {
 
   /// Closes a socket.
   case close(socket: CInt)
+
+  /// The file descriptor that this operation is performed on.
+  var fileDescriptor: CInt {
+    switch self {
+    case .connect(let fileDescriptor, _, _):
+      return fileDescriptor
+    case .close(let fileDescriptor):
+      return fileDescriptor
+    }
+  }
 }
 #endif
 
