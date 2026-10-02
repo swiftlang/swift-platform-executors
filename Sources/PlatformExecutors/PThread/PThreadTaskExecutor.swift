@@ -60,10 +60,14 @@ public final class PThreadTaskExecutor: TaskExecutor {
   ///     where index starts from 0.
   ///   - poolSize: The number of `PThreadExecutor` instances to create in the pool. Must be greater than 0.
   ///   If `nil` is passed then the systems available core count will be used. Defaults to `nil`.
+  ///   - stackSize: The stack size in bytes of each thread in the pool, or `nil` to use the platform's default
+  ///     thread stack size. Must be greater than 0. The value is rounded up to a multiple of the page size and
+  ///     to at least 128 KiB, or the platform's minimum thread stack size if larger.
   ///   - taskExecutor: The task executor to use in-case this executor gets wrapped.
   internal init(
     name: String,
     poolSize: Int? = nil,
+    stackSize: Int? = nil,
     taskExecutor: UnownedTaskExecutor?
   ) {
     let poolSize = poolSize ?? SystemCoreCount.coreCount
@@ -77,6 +81,7 @@ public final class PThreadTaskExecutor: TaskExecutor {
         .append(
           PThreadExecutor(
             name: "\(name)-\(i)",
+            stackSize: stackSize,
             serialExecutor: nil,
             taskExecutor: taskExecutor
           )
@@ -95,17 +100,22 @@ public final class PThreadTaskExecutor: TaskExecutor {
   ///   - name: The base name for the executor pool. Each thread will be named `"<name>-<index>"`.
   ///   - poolSize: The number of executors in the pool. Must be greater than 0.
   ///     If `nil` is passed then the systems available core count will be used. Defaults to `nil`.
+  ///   - stackSize: The stack size in bytes of each thread in the pool, or `nil` to use the platform's default
+  ///     thread stack size. Must be greater than 0. The value is rounded up to a multiple of the page size and
+  ///     to at least 128 KiB, or the platform's minimum thread stack size if larger.
   ///   - body: A closure that gets access to the pooled task executor for the duration of execution.
   /// - Returns: The value returned by the body closure.
   public nonisolated(nonsending) static func withExecutor<Return, Failure: Error>(
     name: String,
     poolSize: Int? = nil,
+    stackSize: Int? = nil,
     body: (PThreadTaskExecutor) async throws(Failure) -> Return
   ) async throws(Failure) -> Return {
     do {
       return try await self._withExecutor(
         name: name,
         poolSize: poolSize,
+        stackSize: stackSize,
         taskExecutor: nil,
         body: body
       )
@@ -119,12 +129,14 @@ public final class PThreadTaskExecutor: TaskExecutor {
   internal nonisolated(nonsending) static func _withExecutor<Return>(
     name: String,
     poolSize: Int? = nil,
+    stackSize: Int? = nil,
     taskExecutor: UnownedTaskExecutor?,
     body: (PThreadTaskExecutor) async throws -> Return
   ) async rethrows -> Return {
     let executor = PThreadTaskExecutor(
       name: name,
       poolSize: poolSize,
+      stackSize: stackSize,
       taskExecutor: taskExecutor
     )
 

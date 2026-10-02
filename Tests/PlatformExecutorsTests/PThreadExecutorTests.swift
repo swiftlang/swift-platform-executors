@@ -12,6 +12,7 @@
 
 #if os(Linux) || os(FreeBSD) || canImport(Darwin)
 
+import CPlatformExecutors
 import Testing
 @_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import _Concurrency
 @_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import PlatformExecutors
@@ -48,6 +49,55 @@ struct PThreadExecutorTests {
 
   @Test
   @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+  func taskExecutorStackSize() async {
+    let stackSize = 64 << 20
+    await PThreadTaskExecutor.withExecutor(
+      name: "BigStack",
+      poolSize: 2,
+      stackSize: stackSize
+    ) { executor in
+      await withTaskGroup { group in
+        for _ in 0..<10 {
+          group.addTask(executorPreference: executor) {
+            #expect(CPlatformExecutors_pthread_current_stack_size() >= stackSize)
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+  func serialExecutorStackSize() async {
+    let stackSize = 64 << 20
+    await PThreadSerialExecutor.withExecutor(
+      name: "BigStack",
+      stackSize: stackSize
+    ) { executor in
+      let actor = StackSizeActor(executor: executor)
+      #expect(await actor.currentStackSize() >= stackSize)
+    }
+  }
+
+  @Test
+  @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+  func stackSizeIsRoundedUp() async {
+    // Not a page multiple and below the 128 KiB floor, which is enforced
+    // because PTHREAD_STACK_MIN is too small to run Swift code on x86_64 glibc
+    let stackSize = 1001
+    await PThreadTaskExecutor.withExecutor(
+      name: "TinyStack",
+      poolSize: 1,
+      stackSize: stackSize
+    ) { executor in
+      await Task(executorPreference: executor) {
+        #expect(CPlatformExecutors_pthread_current_stack_size() >= 128 * 1024)
+      }.value
+    }
+  }
+
+  @Test
+  @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
   func test() async throws {
     await PThreadExecutor.withExecutor(name: "Test") { executor in
       #expect(await ExecutorFixture.test(executor: executor))
@@ -64,6 +114,23 @@ struct PThreadExecutorTests {
     // We are manually shutting it down since normally it is expeceted to live
     // for the entire duration of a process
     //    mainExecutor.pThreadExecutor.shutdown()
+  }
+}
+
+@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+private actor StackSizeActor {
+  let executor: PThreadSerialExecutor
+
+  init(executor: PThreadSerialExecutor) {
+    self.executor = executor
+  }
+
+  nonisolated var unownedExecutor: UnownedSerialExecutor {
+    self.executor.asUnownedSerialExecutor()
+  }
+
+  func currentStackSize() -> Int {
+    CPlatformExecutors_pthread_current_stack_size()
   }
 }
 #endif

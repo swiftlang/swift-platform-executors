@@ -63,12 +63,18 @@ struct Thread: ~Copyable, @unchecked Sendable {
   ///
   /// - arguments:
   ///     - name: The name of the `Thread` or `nil` if no specific name should be set.
+  ///     - stackSize: The stack size in bytes of the `Thread` or `nil` to use the platform default.
   ///     - body: The function to execute within the spawned `Thread`.
   /// - returns: The spawned `Thread` instance.
   static func spawnAndRun(
     name: String? = nil,
+    stackSize: Int? = nil,
     body: @escaping () -> Void
   ) -> Thread {
+    if let stackSize {
+      precondition(stackSize > 0, "Stack size must be greater than 0")
+    }
+
     var handle: PThread.ThreadHandle? = nil
 
     // Store everything we want to pass into the c function in a Box so we
@@ -76,7 +82,7 @@ struct Thread: ~Copyable, @unchecked Sendable {
     let tuple: ThreadBoxValue = (body: body, name: name)
     let box = ThreadBox(tuple)
 
-    PThread.run(handle: &handle, args: box)
+    PThread.run(handle: &handle, stackSize: stackSize, args: box)
     return Thread(handle: handle!, desiredName: name, mustBeJoined: true)
   }
 

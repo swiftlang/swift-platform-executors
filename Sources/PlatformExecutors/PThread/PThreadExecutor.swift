@@ -232,15 +232,20 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   ///
   /// - Parameters:
   ///   - name: The name assigned to the executor's background thread.
+  ///   - stackSize: The stack size in bytes of the executor's background thread, or `nil` to use the
+  ///     platform's default thread stack size. Must be greater than 0. The value is rounded up to a multiple
+  ///     of the page size and to at least 128 KiB, or the platform's minimum thread stack size if larger.
   ///   - body: A closure that gets access to the task executor for the duration of execution.
   /// - Returns: The value returned by the body closure.
   package nonisolated(nonsending) static func withExecutor<Return, Failure: Error>(
     name: String,
+    stackSize: Int? = nil,
     body: (PThreadExecutor) async throws(Failure) -> Return
   ) async throws(Failure) -> Return {
     do {
       return try await self._withExecutor(
         name: name,
+        stackSize: stackSize,
         taskExecutor: nil,
         serialExecutor: nil,
         body: body
@@ -254,12 +259,14 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   // and it is not able to reason that the thrown error inside asyncDo is a Failure
   internal nonisolated(nonsending) static func _withExecutor<Return>(
     name: String,
+    stackSize: Int? = nil,
     taskExecutor: UnownedTaskExecutor?,
     serialExecutor: UnownedSerialExecutor?,
     body: (PThreadExecutor) async throws -> Return
   ) async rethrows -> Return {
     let executor = PThreadExecutor(
       name: name,
+      stackSize: stackSize,
       serialExecutor: serialExecutor,
       taskExecutor: taskExecutor
     )
@@ -273,13 +280,14 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
 
   internal convenience init(
     name: String,
+    stackSize: Int? = nil,
     serialExecutor: UnownedSerialExecutor?,
     taskExecutor: UnownedTaskExecutor?
   ) {
     self.init()
 
     let conditionVariable = ConditionVariable(true)
-    let thread = Thread.spawnAndRun(name: name) {
+    let thread = Thread.spawnAndRun(name: name, stackSize: stackSize) {
       do {
         // Block until we've set the thread in the thread bound state
         conditionVariable.wait {

@@ -44,6 +44,7 @@ private typealias ThreadDestructor = @convention(c) (UnsafeMutableRawPointer) ->
 private typealias ThreadDestructor = @convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?
 #endif
 #elseif canImport(Darwin)
+import CPlatformExecutors
 import Darwin
 
 private let sys_pthread_getname_np = pthread_getname_np
@@ -61,38 +62,72 @@ private typealias ThreadDestructor = @convention(c) (UnsafeMutableRawPointer) ->
 
 #endif
 
+/// Runs `body` with specified thread attributes.
+///
+/// - Parameters:
+///   - stackSize: The requested stack size in bytes, or nil to use the default stack size.
+///     The passed value will be normalized to the platform's minimum and page size.
+///   - body: The closure that creates the thread using the passed attributes
+/// - Returns: The result of `body`, or the error code of the failed `pthread_attr_*` call
+private func withThreadAttributes(
+  stackSize: Int?,
+  _ body: (UnsafePointer<pthread_attr_t>?) -> CInt
+) -> CInt {
+  guard let stackSize else {
+    return body(nil)
+  }
+  var attr = pthread_attr_t()
+  var result = pthread_attr_init(&attr)
+  guard result == 0 else {
+    return result
+  }
+  defer { pthread_attr_destroy(&attr) }
+  result = pthread_attr_setstacksize(
+    &attr,
+    CPlatformExecutors_pthread_normalized_stack_size(stackSize)
+  )
+  guard result == 0 else {
+    return result
+  }
+  return body(&attr)
+}
+
 private func sysPthread_create(
   handle: UnsafeMutablePointer<pthread_t?>,
+  stackSize: Int?,
   destructor: @escaping ThreadDestructor,
   args: UnsafeMutableRawPointer?
 ) -> CInt {
   #if canImport(Darwin)
-  return pthread_create(handle, nil, destructor, args)
+  return withThreadAttributes(stackSize: stackSize) { attr in
+    pthread_create(handle, attr, destructor, args)
+  }
   #elseif os(WASI)
   // wasi-libc's `pthread_t` is a pointer; the shim adds the explicit stack
   // (wasi-libc's default thread stack is small and wasm has no guard page).
   var handleWASI: pthread_t? = nil
-  let result = CPlatformExecutors_wasi_pthread_create(&handleWASI, destructor, args)
+  let result = CPlatformExecutors_wasi_pthread_create(
+    &handleWASI,
+    destructor,
+    args,
+    stackSize.map(CPlatformExecutors_pthread_normalized_stack_size) ?? 0
+  )
   handle.pointee = handleWASI
   return result
   #else
   #if canImport(Musl)
   var handleLinux: OpaquePointer? = nil
-  let result = pthread_create(
-    &handleLinux,
-    nil,
-    destructor,
-    args
-  )
   #else
   var handleLinux = pthread_t()
-  let result = pthread_create(
-    &handleLinux,
-    nil,
-    destructor,
-    args
-  )
   #endif
+  let result = withThreadAttributes(stackSize: stackSize) { attr in
+    pthread_create(
+      &handleLinux,
+      attr,
+      destructor,
+      args
+    )
+  }
   handle.pointee = handleLinux
   return result
   #endif
@@ -125,11 +160,13 @@ enum PThread {
 
   static func run(
     handle: inout PThread.ThreadHandle?,
+    stackSize: Int?,
     args: Box<Thread.ThreadBoxValue>
   ) {
     let argv0 = Unmanaged.passRetained(args).toOpaque()
     let res = sysPthread_create(
       handle: &handle,
+      stackSize: stackSize,
       destructor: {
         // Cast to UnsafeMutableRawPointer? and force unwrap to make the
         // same code work on macOS and Linux.
