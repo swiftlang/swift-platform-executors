@@ -147,15 +147,37 @@ enum StreamSocketSyscall {
   /// - Parameter fileDescriptor: The file descriptor of the listening socket.
   /// - Returns: The accepted socket.
   static func accept(_ fileDescriptor: CInt) throws(IOError) -> CInt? {
-    #if canImport(Darwin)
-    let result = try retryingIOSyscall(blocking: true) {
-      sysAccept(fileDescriptor, nil, nil)
+    let result: IOResult<CInt>
+    while true {
+      do {
+        #if canImport(Darwin)
+        result = try retryingIOSyscall(blocking: true) {
+          sysAccept(fileDescriptor, nil, nil)
+        }
+        #else
+        result = try retryingIOSyscall(blocking: true) {
+          sysAccept4(fileDescriptor, nil, nil, Self.nonBlockingFlag | Self.closeOnExecFlag)
+        }
+        #endif
+        break
+      } catch {
+        // A connection that is aborted before we accept it fails only
+        // itself and not the listening socket, so we move on to the next
+        // pending connection. On Darwin this happens when a socket filter
+        // drops the connection:
+        // https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/kern/uipc_socket.c#L1424-L1477
+        //
+        // The Linux man page additionally lists network errors of the new
+        // connection that should be retried. Linux stopped passing these on
+        // to `accept` before 2.6.12, and today it only returns errors of
+        // the listening socket or from allocating the new one:
+        // https://github.com/torvalds/linux/blob/22430ae5d90ab288b0ee2ad99ae941f4a666b694/net/ipv4/af_inet.c#L783-L802
+        // https://github.com/torvalds/linux/blob/22430ae5d90ab288b0ee2ad99ae941f4a666b694/net/ipv4/inet_connection_sock.c#L649-L711
+        guard error.code.platformCode == ECONNABORTED else {
+          throw error
+        }
+      }
     }
-    #else
-    let result = try retryingIOSyscall(blocking: true) {
-      sysAccept4(fileDescriptor, nil, nil, Self.nonBlockingFlag | Self.closeOnExecFlag)
-    }
-    #endif
 
     guard case .processed(let accepted) = result else {
       return nil
