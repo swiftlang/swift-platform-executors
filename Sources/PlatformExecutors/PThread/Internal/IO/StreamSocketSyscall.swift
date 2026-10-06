@@ -24,6 +24,7 @@ import Darwin
 // so we have to alias them here.
 private let sysBind = bind
 private let sysListen = listen
+private let sysConnect = connect
 private let sysClose = close(descriptor:)
 
 /// The non-blocking stream socket syscalls that back the TCP operations.
@@ -102,6 +103,36 @@ enum StreamSocketSyscall {
     }
   }
 
+  /// Starts connecting the socket to the given address.
+  ///
+  /// - Parameters:
+  ///   - fileDescriptor: The file descriptor of the socket.
+  ///   - address: The address to connect to.
+  /// - Returns: `true` if the connection was established right away and `false` if it is still in progress. A
+  ///   connection that is still in progress completes once the socket becomes writable.
+  static func connect(
+    _ fileDescriptor: CInt,
+    to address: UnsafePointer<sockaddr>,
+    addressLength: socklen_t
+  ) throws(IOError) -> Bool {
+    if sysConnect(fileDescriptor, address, addressLength) == 0 {
+      return true
+    }
+
+    switch errno {
+    case EINPROGRESS:
+      return false
+    case EINTR:
+      // A connect that is interrupted keeps establishing the connection in the
+      // background, so we must not retry it here and instead wait for the
+      // socket to become writable similar to any other connect that is
+      // still in progress.
+      return false
+    case let errnoCode:
+      throw IOError(errnoCode: errnoCode)
+    }
+  }
+
   /// Closes the socket.
   ///
   /// - Parameter fileDescriptor: The file descriptor of the socket.
@@ -155,6 +186,24 @@ enum StreamSocketSyscall {
     } catch {
       return .failure(error)
     }
+  }
+
+  /// Returns the error that is pending on the socket.
+  ///
+  /// This is how the result of a connect that was still in progress is retrieved once the socket became
+  /// writable.
+  ///
+  /// - Parameter fileDescriptor: The file descriptor of the socket.
+  /// - Returns: The pending `errno` or zero if the socket has no pending error.
+  static func pendingError(_ fileDescriptor: CInt) throws(IOError) -> CInt {
+    var error: CInt = 0
+    var length = socklen_t(MemoryLayout<CInt>.size)
+
+    try retryingIOSyscall(blocking: false) {
+      getsockopt(fileDescriptor, SOL_SOCKET, SO_ERROR, &error, &length)
+    }
+
+    return error
   }
 
   /// Allows the socket to bind to an address that is still in its `TIME_WAIT` state.

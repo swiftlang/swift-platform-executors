@@ -67,6 +67,11 @@ struct EpollReadinessBackend: ~Copyable {
   /// The next suspending clock timer to avoid re-arming the timer if possible.
   fileprivate var nextBoottimelockTimer: SuspendingClock.Instant?
 
+  #if ExperimentalIO
+  /// The operations that are waiting for their file descriptor to become ready.
+  private var operations = ReadinessOperations()
+  #endif
+
   /// A handle that other threads use to wake this backend up.
   var wakeupHandle: WakeupHandle {
     WakeupHandle(eventFD: self.eventFD)
@@ -149,110 +154,197 @@ struct EpollReadinessBackend: ~Copyable {
 
   /// Blocks until a registered file descriptor became ready, a timer fired or the wakeup was called.
   ///
-  /// - Parameter strategy: The strategy to use for blocking.
-  private mutating func whenReady(strategy: IOWaitStrategy) throws {
-    // We need to handle the event FD and the two timer FDs.
-    let maxEvents = 3
-
-    try withUnsafeTemporaryAllocation(of: Epoll.epoll_event.self, capacity: maxEvents) { eventsPointer in
-      let readyEvents: Int
-      switch strategy {
-      case .now:
-        readyEvents = Int(
-          try Epoll.epoll_wait(
-            epfd: self.epollFD,
-            events: eventsPointer.baseAddress!,
-            maxevents: Int32(maxEvents),
-            timeout: 0
-          )
-        )
-      case .blockUntilTimeout(let continuousClockInstant, let suspendingClockInstant):
-        // The continuous clock maps to the boottime clock
-        func setTimer(instant: ContinuousClock.Instant) throws {
-          var ts = itimerspec()
-          ts.it_value = timespec(duration: ContinuousClock.now.duration(to: instant))
-          try TimerFileDescriptor.timerfd_settime(fd: self.boottimeTimerFD, flags: 0, newValue: &ts, oldValue: nil)
-        }
-        // The suspending clock maps to the monotonic clock
-        func setTimer(instant: SuspendingClock.Instant) throws {
-          var ts = itimerspec()
-          ts.it_value = timespec(duration: SuspendingClock.now.duration(to: instant))
-          try TimerFileDescriptor.timerfd_settime(fd: self.monotonicTimerFD, flags: 0, newValue: &ts, oldValue: nil)
-        }
-        // Only call timerfd_settime if we're not already scheduled one that will cover it.
-        if let continuousClockInstant {
-          if let nextMonotonicClockTimer = self.nextMonotonicClockTimer {
-            if continuousClockInstant < nextMonotonicClockTimer {
-              try setTimer(instant: continuousClockInstant)
-            }
-          } else {
+  /// The events are handed back rather than reported through a closure: handling one mutates this backend,
+  /// which would overlap the access to `self` that this method holds while it runs. Each event is passed to
+  /// ``process(_:)`` once this has returned.
+  ///
+  /// - Parameters:
+  ///   - strategy: The strategy to use for blocking.
+  ///   - events: The buffer that epoll writes the events into. It has to be empty.
+  private mutating func waitForEvents(
+    strategy: IOWaitStrategy,
+    into events: inout OutputSpan<Epoll.epoll_event>
+  ) throws {
+    // First let's work out the timeout.
+    let timeout: CInt
+    switch strategy {
+    case .now:
+      timeout = 0
+    case .blockUntilTimeout(let continuousClockInstant, let suspendingClockInstant):
+      // The continuous clock maps to the boottime clock
+      func setTimer(instant: ContinuousClock.Instant) throws {
+        var ts = itimerspec()
+        ts.it_value = timespec(duration: ContinuousClock.now.duration(to: instant))
+        try TimerFileDescriptor.timerfd_settime(fd: self.boottimeTimerFD, flags: 0, newValue: &ts, oldValue: nil)
+      }
+      // The suspending clock maps to the monotonic clock
+      func setTimer(instant: SuspendingClock.Instant) throws {
+        var ts = itimerspec()
+        ts.it_value = timespec(duration: SuspendingClock.now.duration(to: instant))
+        try TimerFileDescriptor.timerfd_settime(fd: self.monotonicTimerFD, flags: 0, newValue: &ts, oldValue: nil)
+      }
+      // Only call timerfd_settime if we're not already scheduled one that will cover it.
+      if let continuousClockInstant {
+        if let nextMonotonicClockTimer = self.nextMonotonicClockTimer {
+          if continuousClockInstant < nextMonotonicClockTimer {
             try setTimer(instant: continuousClockInstant)
           }
+        } else {
+          try setTimer(instant: continuousClockInstant)
         }
+      }
 
-        // Only call timerfd_settime if we're not already scheduled one that will cover it.
-        if let suspendingClockInstant {
-          if let nextBoottimelockTimer = self.nextBoottimelockTimer {
-            if suspendingClockInstant < nextBoottimelockTimer {
-              try setTimer(instant: suspendingClockInstant)
-            }
-          } else {
+      // Only call timerfd_settime if we're not already scheduled one that will cover it.
+      if let suspendingClockInstant {
+        if let nextBoottimelockTimer = self.nextBoottimelockTimer {
+          if suspendingClockInstant < nextBoottimelockTimer {
             try setTimer(instant: suspendingClockInstant)
           }
+        } else {
+          try setTimer(instant: suspendingClockInstant)
         }
-        fallthrough
+      }
+      // The timers wake us up, so we can block until a file descriptor becomes ready.
+      timeout = -1
+    case .block:
+      // Specifying -1 blocks until a file descriptor becomes ready
+      timeout = -1
+    }
 
-      case .block:
-        readyEvents = Int(
-          try Epoll.epoll_wait(
-            epfd: self.epollFD,
-            events: eventsPointer.baseAddress!,
-            maxevents: Int32(maxEvents),
-            timeout: -1  // Specifying -1 blocks until a file descriptor becomes ready
-          )
+    try events.withUnsafeMutableBufferPointer { buffer, initializedCount in
+      assert(initializedCount == 0, "The events can only be written into an empty buffer")
+      initializedCount = Int(
+        try Epoll.epoll_wait(
+          epfd: self.epollFD,
+          events: buffer.baseAddress!,
+          maxevents: CInt(buffer.count),
+          timeout: timeout
         )
-      }
-
-      for i in 0..<readyEvents {
-        let ev = eventsPointer[i]
-        let epollUserData = UserData(rawValue: ev.data.u64)
-        let fd = epollUserData.fileDescriptor
-        _ = epollUserData.registrationID
-        switch fd {
-        case self.eventFD:
-          // Consume event
-          var val = EventFileDescriptor.eventfd_t()
-          _ = try EventFileDescriptor.eventfd_read(fd: self.eventFD, value: &val)
-        case self.monotonicTimerFD:
-          // Consume event
-          var val: UInt64 = 0
-          // We are not interested in the result
-          _ = try! TimerFileDescriptor.timerfd_read(
-            descriptor: self.monotonicTimerFD,
-            pointer: &val,
-            size: MemoryLayout.size(ofValue: val)
-          )
-
-          // Processed the earliest set timer so reset it.
-          self.nextMonotonicClockTimer = nil
-        case self.boottimeTimerFD:
-          // Consume event
-          var val: UInt64 = 0
-          // We are not interested in the result
-          _ = try! TimerFileDescriptor.timerfd_read(
-            descriptor: self.boottimeTimerFD,
-            pointer: &val,
-            size: MemoryLayout.size(ofValue: val)
-          )
-
-          // Processed the earliest set timer so reset it.
-          self.nextBoottimelockTimer = nil
-        default:
-          fatalError("Unknown file descriptor in epoll event")
-        }
-      }
+      )
     }
   }
+
+  /// Processes one event that ``waitForEvents(strategy:into:)`` handed back.
+  ///
+  /// - Parameter ev: The event to process.
+  /// - Returns: The readiness of a file descriptor that an operation waits on, or `nil` if the event was one of
+  ///   this backend's own.
+  private mutating func process(_ ev: Epoll.epoll_event) throws -> ReadinessEvent? {
+    let epollUserData = UserData(rawValue: ev.data.u64)
+    let fd = epollUserData.fileDescriptor
+    _ = epollUserData.registrationID
+    switch fd {
+    case self.eventFD:
+      // Consume event
+      var val = EventFileDescriptor.eventfd_t()
+      _ = try EventFileDescriptor.eventfd_read(fd: self.eventFD, value: &val)
+    case self.monotonicTimerFD:
+      // Consume event
+      var val: UInt64 = 0
+      // We are not interested in the result
+      _ = try! TimerFileDescriptor.timerfd_read(
+        descriptor: self.monotonicTimerFD,
+        pointer: &val,
+        size: MemoryLayout.size(ofValue: val)
+      )
+
+      // Processed the earliest set timer so reset it.
+      self.nextMonotonicClockTimer = nil
+    case self.boottimeTimerFD:
+      // Consume event
+      var val: UInt64 = 0
+      // We are not interested in the result
+      _ = try! TimerFileDescriptor.timerfd_read(
+        descriptor: self.boottimeTimerFD,
+        pointer: &val,
+        size: MemoryLayout.size(ofValue: val)
+      )
+
+      // Processed the earliest set timer so reset it.
+      self.nextBoottimelockTimer = nil
+    default:
+      return ReadinessEvent(
+        registrationID: epollUserData.registrationID,
+        fileDescriptor: fd,
+        // `EPOLLRDHUP` is reported alongside readiness and the operation that
+        // follows surfaces the end of the stream, so we treat it as being ready.
+        isReadable: ev.events & (Epoll.EPOLLIN | Epoll.EPOLLRDHUP) != 0,
+        isWritable: ev.events & Epoll.EPOLLOUT != 0,
+        isError: ev.events & (Epoll.EPOLLERR | Epoll.EPOLLHUP) != 0
+      )
+    }
+    return nil
+  }
+
+  /// The maximum number of events that are processed in a single tick.
+  private static var maxEvents: Int { 64 }
+
+  #if ExperimentalIO
+  /// Arms the interest that the pending operations of a file descriptor need.
+  ///
+  /// The registrations are one-shot, so epoll disables them as soon as they produced an event and an
+  /// operation that has to wait again is armed again.
+  // TODO: Register every file descriptor once, edge-triggered for both directions
+  // (`EPOLLET`, and `EV_CLEAR` on kqueue), and cache its readiness in
+  // `ReadinessOperations`, so that operations in the steady state need no
+  // `epoll_ctl` at all.
+  private mutating func arm(_ registration: ReadinessOperations.Registration) {
+    var events = Epoll.EPOLLONESHOT | Epoll.EPOLLERR | Epoll.EPOLLHUP
+    if registration.interest.contains(.read) {
+      events |= Epoll.EPOLLIN | Epoll.EPOLLRDHUP
+    }
+    if registration.interest.contains(.write) {
+      events |= Epoll.EPOLLOUT
+    }
+
+    var event = Epoll.epoll_event()
+    event.events = events
+    event.data.u64 = UInt64(
+      UserData(
+        registrationID: registration.registrationID,
+        fileDescriptor: registration.fileDescriptor
+      )
+    )
+
+    // epoll wants a file descriptor to be added before its interest can be
+    // changed, but whether it is in the set is not something we can track.
+    // Modifying first and adding only when epoll says it does not know the file
+    // descriptor asks the kernel instead, which is always right and costs the
+    // extra syscall only on the first operation of a file descriptor.
+    do {
+      try Epoll.epoll_ctl(
+        epfd: self.epollFD,
+        op: Epoll.EPOLL_CTL_MOD,
+        fd: registration.fileDescriptor,
+        event: &event
+      )
+    } catch let error as SyscallError where error.errnoCode == ENOENT {
+      do {
+        try Epoll.epoll_ctl(
+          epfd: self.epollFD,
+          op: Epoll.EPOLL_CTL_ADD,
+          fd: registration.fileDescriptor,
+          event: &event
+        )
+      } catch {
+        self.failOperations(on: registration.fileDescriptor, with: error)
+      }
+    } catch {
+      self.failOperations(on: registration.fileDescriptor, with: error)
+    }
+  }
+
+  /// Fails every operation waiting on a file descriptor that could not be armed.
+  private mutating func failOperations(on fileDescriptor: CInt, with error: any Error) {
+    let ioError: IOError
+    if let syscallError = error as? SyscallError {
+      ioError = IOError(syscallError)
+    } else {
+      ioError = IOError(code: .platform(EIO))
+    }
+    self.operations.failPendingOperations(on: fileDescriptor, with: ioError)
+  }
+  #endif
 
   /// Wakes up a backend from any thread.
   ///
@@ -272,33 +364,65 @@ struct EpollReadinessBackend: ~Copyable {
 #if ExperimentalIO
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 extension EpollReadinessBackend: IOBackend {
-  // TODO: Implement IO operations
   static func attempt(_ operation: IOOperation) -> Result<Int, IOError>? {
-    fatalError("No support for IO operations")
+    ReadinessOperations.attempt(operation)
   }
 
   mutating func submit(_ operation: IOOperation, id: IOOperationID) {
-    fatalError("No support for IO operations")
+    guard let registration = self.operations.submit(operation, id: id) else {
+      return
+    }
+    self.arm(registration)
   }
 
   mutating func cancel(_ id: IOOperationID) {
-    fatalError("No support for IO operations")
+    guard let registration = self.operations.cancel(id) else {
+      return
+    }
+    self.arm(registration)
   }
 
   mutating func wait(
     strategy: IOWaitStrategy,
     completions: inout [(IOOperationID, Result<Int, IOError>)]
   ) throws {
-    // Waiting is how the executor blocks whether or not it has I/O in flight, so it works already. Nothing can
-    // be submitted yet, so there is never a result to report.
-    try self.whenReady(strategy: strategy)
+    // Something may have completed without epoll since the last tick,
+    // such as a cancelled operation or a close. Nothing wakes us up for
+    // those, so we must not block if there are any.
+    var strategy = strategy
+    if self.operations.hasReadyResults {
+      strategy = .now
+    }
+
+    try withTemporaryAllocation(of: Epoll.epoll_event.self, capacity: Self.maxEvents) { events in
+      try self.waitForEvents(strategy: strategy, into: &events)
+
+      for index in events.indices {
+        guard let readiness = try self.process(events[index]),
+          let registration = self.operations.handle(readiness)
+        else {
+          continue
+        }
+        self.arm(registration)
+      }
+    }
+
+    // The results are handed over last, once everything is armed.
+    self.operations.takeReadyResults(into: &completions)
   }
 }
 #else
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 extension EpollReadinessBackend: IOBackend {
   mutating func wait(strategy: IOWaitStrategy) throws {
-    try self.whenReady(strategy: strategy)
+    try withTemporaryAllocation(of: Epoll.epoll_event.self, capacity: Self.maxEvents) { events in
+      try self.waitForEvents(strategy: strategy, into: &events)
+
+      // Process the events.
+      for index in events.indices {
+        _ = try self.process(events[index])
+      }
+    }
   }
 }
 #endif
