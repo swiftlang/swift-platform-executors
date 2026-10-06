@@ -781,6 +781,12 @@ extension PThreadExecutor {
     /// Resumes with a connected socket.
     case connection(Continuation<TCPConnection, IOError>, socket: CInt)
 
+    /// Resumes with the connection that an accept produced.
+    case acceptedConnection(Continuation<TCPConnection, IOError>)
+
+    /// Resumes with the number of bytes that a read or a write transferred.
+    case byteCount(Continuation<Int, IOError>)
+
     /// Resumes with void, so the result only reports whether the operation succeeded.
     case void(Continuation<Void, IOError>)
 
@@ -798,6 +804,17 @@ extension PThreadExecutor {
           try? StreamSocketSyscall.close(socket)
           continuation.resume(throwing: error)
         }
+
+      case .acceptedConnection(let continuation):
+        switch result {
+        case .success(let fileDescriptor):
+          continuation.resume(returning: TCPConnection(fileDescriptor: CInt(fileDescriptor)))
+        case .failure(let error):
+          continuation.resume(throwing: error)
+        }
+
+      case .byteCount(let continuation):
+        continuation.resume(with: result)
 
       case .void(let continuation):
         switch result {
@@ -892,6 +909,14 @@ extension PThreadExecutor {
           address: UnsafePointer(statePointer.pointee.addressPointer),
           addressLength: statePointer.pointee.addressLength
         )
+      case .accept(let socket):
+        return .accept(socket: socket)
+      case .read(let socket, let buffer):
+        return .read(socket: socket, buffer: buffer)
+      case .write(let socket, let buffer):
+        return .write(socket: socket, buffer: buffer)
+      case .shutdown(let socket, let direction):
+        return .shutdown(socket: socket, direction: direction)
       case .close(let socket):
         return .close(socket: socket)
       }

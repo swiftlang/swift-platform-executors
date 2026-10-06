@@ -14,8 +14,10 @@
 #if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
 #if canImport(Glibc)
 import Glibc
+import CPlatformExecutors
 #elseif canImport(Musl)
 import Musl
+import CPlatformExecutors
 #elseif canImport(Darwin)
 import Darwin
 #endif
@@ -25,7 +27,14 @@ import Darwin
 private let sysBind = bind
 private let sysListen = listen
 private let sysConnect = connect
+private let sysSend = send
+private let sysShutdown = shutdown
 private let sysClose = close(descriptor:)
+#if canImport(Darwin)
+private let sysAccept = accept
+#else
+private let sysAccept4 = CPlatformExecutors_accept4
+#endif
 
 /// The non-blocking stream socket syscalls that back the TCP operations.
 enum StreamSocketSyscall {
@@ -130,6 +139,139 @@ enum StreamSocketSyscall {
       return false
     case let errnoCode:
       throw IOError(errnoCode: errnoCode)
+    }
+  }
+
+  /// Accepts the next connection of a listening socket.
+  ///
+  /// - Parameter fileDescriptor: The file descriptor of the listening socket.
+  /// - Returns: The accepted socket.
+  static func accept(_ fileDescriptor: CInt) throws(IOError) -> CInt? {
+    let result: IOResult<CInt>
+    while true {
+      do {
+        #if canImport(Darwin)
+        result = try retryingIOSyscall(blocking: true) {
+          sysAccept(fileDescriptor, nil, nil)
+        }
+        #else
+        result = try retryingIOSyscall(blocking: true) {
+          sysAccept4(fileDescriptor, nil, nil, Self.nonBlockingFlag | Self.closeOnExecFlag)
+        }
+        #endif
+        break
+      } catch {
+        // A connection that is aborted before we accept it fails only
+        // itself and not the listening socket, so we move on to the next
+        // pending connection. On Darwin this happens when a socket filter
+        // drops the connection:
+        // https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/kern/uipc_socket.c#L1424-L1477
+        //
+        // The Linux man page additionally lists network errors of the new
+        // connection that should be retried. Linux stopped passing these on
+        // to `accept` before 2.6.12, and today it only returns errors of
+        // the listening socket or from allocating the new one:
+        // https://github.com/torvalds/linux/blob/22430ae5d90ab288b0ee2ad99ae941f4a666b694/net/ipv4/af_inet.c#L783-L802
+        // https://github.com/torvalds/linux/blob/22430ae5d90ab288b0ee2ad99ae941f4a666b694/net/ipv4/inet_connection_sock.c#L649-L711
+        guard error.code.platformCode == ECONNABORTED else {
+          throw error
+        }
+      }
+    }
+
+    guard case .processed(let accepted) = result else {
+      return nil
+    }
+
+    #if canImport(Darwin)
+    do {
+      // Darwin has no `accept4` so we need to configure the socket.
+      try Self.setNonBlocking(accepted)
+      try Self.setCloseOnExec(accepted)
+      try Self.setSocketOption(accepted, level: SOL_SOCKET, name: SO_NOSIGPIPE, value: 1)
+    } catch {
+      // We cannot report both errors, so we drop the error of the close here.
+      try? Self.close(accepted)
+      throw error
+    }
+    #endif
+
+    return accepted
+  }
+
+  /// Receives bytes from the socket into the given buffer.
+  ///
+  /// - Parameters:
+  ///   - fileDescriptor: The file descriptor of the socket.
+  ///   - buffer: The buffer to receive into.
+  /// - Returns: The number of bytes received, where zero means that the peer closed its side of the
+  ///   connection, or `nil` if receiving would have blocked.
+  static func receive(
+    _ fileDescriptor: CInt,
+    into buffer: UnsafeMutableRawBufferPointer
+  ) throws(IOError) -> Int? {
+    guard let baseAddress = buffer.baseAddress, buffer.count > 0 else {
+      return 0
+    }
+
+    let result = try retryingIOSyscall(blocking: true) {
+      recv(fileDescriptor, baseAddress, buffer.count, 0)
+    }
+    guard case .processed(let count) = result else {
+      return nil
+    }
+    return count
+  }
+
+  /// Sends the bytes of the given buffer to the socket.
+  ///
+  /// - Parameters:
+  ///   - fileDescriptor: The file descriptor of the socket.
+  ///   - buffer: The buffer to send.
+  /// - Returns: The number of bytes sent, which can be less than the number of bytes in the buffer, or `nil`
+  ///   if sending would have blocked.
+  static func send(
+    _ fileDescriptor: CInt,
+    from buffer: UnsafeRawBufferPointer
+  ) throws(IOError) -> Int? {
+    guard let baseAddress = buffer.baseAddress, buffer.count > 0 else {
+      return 0
+    }
+
+    #if canImport(Darwin)
+    // `SIGPIPE` is disabled through `SO_NOSIGPIPE` when the socket is created.
+    let flags: CInt = 0
+    #else
+    let flags = CInt(MSG_NOSIGNAL)
+    #endif
+
+    let result = try retryingIOSyscall(blocking: true) {
+      sysSend(fileDescriptor, baseAddress, buffer.count, flags)
+    }
+    guard case .processed(let count) = result else {
+      return nil
+    }
+    return count
+  }
+
+  /// Shuts down the given directions of the socket.
+  ///
+  /// - Parameters:
+  ///   - fileDescriptor: The file descriptor of the socket.
+  ///   - direction: The direction to shut down.
+  static func shutdown(
+    _ fileDescriptor: CInt,
+    direction: SocketShutdownDirection
+  ) throws(IOError) {
+    let how: CInt =
+      switch direction {
+      case .read: CInt(SHUT_RD)
+      case .write: CInt(SHUT_WR)
+      case .readWrite: CInt(SHUT_RDWR)
+      }
+
+    try retryingIOSyscall(blocking: false) {
+      sysShutdown(fileDescriptor, how)
     }
   }
 
