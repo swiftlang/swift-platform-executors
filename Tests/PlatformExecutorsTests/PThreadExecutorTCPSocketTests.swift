@@ -43,16 +43,10 @@ struct PThreadExecutorTCPSocketTests {
   @available(anyAppleOS 27.0, *)
   func connectToRefusedPortFails() async throws {
     try await PThreadExecutor.withExecutor(name: "TCPSocketTest") { executor in
-      // Bind a listener to get a port that is not listening once it is closed again.
-      let listener = try await executor.listen(
-        on: .v4(SocketAddress.V4(address: .loopback, port: 0)),
-        backlog: 1
-      )
-      let address = try executor.localAddress(of: listener)
-      try await executor.close(listener: listener)
-
-      await #expect(throws: IOError.self) {
-        _ = try await executor.connect(to: address)
+      try await withRefusingAddress { address in
+        await #expect(throws: IOError.self) {
+          _ = try await executor.connect(to: address)
+        }
       }
     }
   }
