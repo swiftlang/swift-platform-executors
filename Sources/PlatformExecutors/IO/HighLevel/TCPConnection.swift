@@ -50,7 +50,7 @@ public struct TCPConnection: ~Copyable, Sendable {
     to address: SocketAddress
   ) async throws(IOError) -> TCPConnection {
     guard
-      let scheduler = OperationSchedulerPreference.resolve({ $0 as? any TCPSocketOperationScheduler })
+      let scheduler = OperationSchedulerPreference.resolve(as: (any TCPSocketOperationScheduler).self)
     else {
       fatalError(
         "No operation scheduler for TCP sockets found. Use withOperationScheduler or a task executor preference."
@@ -63,7 +63,7 @@ public struct TCPConnection: ~Copyable, Sendable {
     to address: SocketAddress,
     on scheduler: Scheduler
   ) async throws(IOError) -> TCPConnection {
-    let connection = try await withOperation(on: scheduler, of: Scheduler.TCPConnection.self) {
+    let connection = try await withOperation(on: scheduler) {
       continuation,
       state in
       scheduler.submitConnect(continuation, state: &state, to: address)

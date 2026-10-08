@@ -54,7 +54,7 @@ public struct TCPListener: ~Copyable, Sendable {
     backlog: Int = 1024
   ) async throws(IOError) -> TCPListener {
     guard
-      let scheduler = OperationSchedulerPreference.resolve({ $0 as? any TCPSocketOperationScheduler })
+      let scheduler = OperationSchedulerPreference.resolve(as: (any TCPSocketOperationScheduler).self)
     else {
       fatalError(
         "No operation scheduler for TCP sockets found."
@@ -100,7 +100,7 @@ public struct TCPListener: ~Copyable, Sendable {
     on scheduler: Scheduler
   ) async throws(IOError) -> TCPConnection {
     let listener = self.listener(of: scheduler)
-    let connection = try await withOperation(on: scheduler, of: Scheduler.TCPConnection.self) {
+    let connection = try await withOperation(on: scheduler) {
       continuation,
       state in
       scheduler.submitAccept(continuation, state: &state, listener: listener)

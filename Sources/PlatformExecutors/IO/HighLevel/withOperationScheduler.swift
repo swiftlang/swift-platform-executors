@@ -82,23 +82,25 @@ final class OperationSchedulerPreference: Sendable {
 
   /// Resolves the operation scheduler for a resource of the current task.
   ///
-  /// - Parameter services: Returns the given operation scheduler as the type that services the resource, or
-  ///   `nil` if it cannot service the resource.
+  /// - Parameter schedulerType: The type of operation scheduler that services the resource. This is usually
+  ///   the existential of a resource specific protocol, such as `(any TCPSocketOperationScheduler).self`.
+  ///   Existentials do not conform to their own protocol, so the type is not constrained to
+  ///   ``OperationScheduler``.
   /// - Returns: The resolved operation scheduler, or `nil` if no operation scheduler services the resource.
   static func resolve<Scheduler>(
-    _ services: (any OperationScheduler) -> Scheduler?
+    as schedulerType: Scheduler.Type
   ) -> Scheduler? {
     var preference = Self.innermost
     while let current = preference {
-      if let scheduler = services(current.scheduler) {
+      if let scheduler = current.scheduler as? Scheduler {
         return scheduler
       }
       preference = current.outer
     }
 
     let taskExecutor = withUnsafeCurrentTask { $0?.unownedTaskExecutor }?.asTaskExecutor()
-    if let scheduler = taskExecutor as? any OperationScheduler {
-      return services(scheduler)
+    if let scheduler = taskExecutor as? Scheduler {
+      return scheduler
     }
     return nil
   }
