@@ -13,19 +13,24 @@
 #if ExperimentalIO
 /// A scheduler that can perform TCP socket operations.
 @available(anyAppleOS 27.0, *)
-public protocol TCPSocketOperationScheduler: OperationScheduler {
+public protocol TCPSocketOperationScheduler<TCPListener, TCPConnection>: OperationScheduler {
   // TODO: Bikeshed the name of this protocol. `socket` might not universal
   // vocabulary across the platforms we support.
   //
   // TODO: Check if and how an existing TCP socket can be adopted.
   //
   // TODO: Need to support a more general endpoint type that accepts hostnames.
+  //
+  // TODO: Make the handles `~Copyable` again so that the type system tracks
+  // their ownership. They are copyable for now since the runtime crashes when
+  // it builds the metadata of a parameterized existential whose type argument
+  // is noncopyable, e.g. `any TCPSocketOperationScheduler<…>` or a cast to it.
 
   /// The handle identifying a listening TCP socket of this scheduler.
-  associatedtype TCPListener: ~Copyable
+  associatedtype TCPListener: Sendable
 
   /// The handle identifying a connected TCP socket of this scheduler.
-  associatedtype TCPConnection: ~Copyable
+  associatedtype TCPConnection: Sendable
 
   /// Submits an operation that creates a new socket and connects it to the given address.
   ///
@@ -157,5 +162,19 @@ public protocol TCPSocketOperationScheduler: OperationScheduler {
     state: inout OutputSpan<OperationState>,
     listener: consuming TCPListener
   ) -> OperationRegistration
+
+  /// Returns the address that a connected socket is bound to locally.
+  ///
+  /// - Parameter connection: The socket to return the local address of.
+  /// - Returns: The address that the socket is bound to locally.
+  func localAddress(of connection: borrowing TCPConnection) throws(IOError) -> SocketAddress
+
+  /// Returns the address that a listening socket is bound to.
+  ///
+  /// This is how a listening socket that was bound to port zero reports the port the platform picked for it.
+  ///
+  /// - Parameter listener: The listening socket to return the address of.
+  /// - Returns: The address that the listening socket is bound to.
+  func localAddress(of listener: borrowing TCPListener) throws(IOError) -> SocketAddress
 }
 #endif

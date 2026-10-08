@@ -154,7 +154,8 @@ struct PThreadExecutorTCPSocketTests {
     try await executor.close(listener: listener)
   }
 
-  @Test
+  // TODO: Enable this again once the handles of `TCPSocketOperationScheduler` are `~Copyable`.
+  @Test(.disabled("The handles are copyable and have no deinit for now."))
   @available(anyAppleOS 27.0, *)
   func droppingAListenerWithoutClosingItTraps() async throws {
     await #expect(processExitsWith: .failure) {
@@ -232,14 +233,14 @@ extension PThreadExecutor {
     }
   }
 
-  fileprivate func accept(listener: borrowing TCPListener) async throws(IOError) -> TCPConnection {
+  fileprivate func accept(listener: TCPListener) async throws(IOError) -> TCPConnection {
     try await withOperation { continuation, state in
       self.submitAccept(continuation, state: &state, listener: listener)
     }
   }
 
   fileprivate func acceptCancellingAfterSubmission(
-    listener: borrowing TCPListener
+    listener: TCPListener
   ) async throws(IOError) -> TCPConnection {
     try await withCancelledOperation(
       { continuation, state in
@@ -253,7 +254,7 @@ extension PThreadExecutor {
 
   /// Reads once, returning at most `count` bytes, or none at the end of the stream.
   fileprivate func read(
-    from connection: borrowing TCPConnection,
+    from connection: TCPConnection,
     count: Int
   ) async throws(IOError) -> [UInt8] {
     // The buffer has to stay alive so we heap alloc here.
@@ -273,7 +274,7 @@ extension PThreadExecutor {
   }
 
   /// Reads until the peer closed its side of the connection.
-  fileprivate func readUntilEndOfStream(from connection: borrowing TCPConnection) async throws(IOError) -> [UInt8] {
+  fileprivate func readUntilEndOfStream(from connection: TCPConnection) async throws(IOError) -> [UInt8] {
     var received = [UInt8]()
     while true {
       let chunk = try await self.read(from: connection, count: 1024)
@@ -287,7 +288,7 @@ extension PThreadExecutor {
   /// Writes once, returning the number of bytes written, which can be less than `bytes.count`.
   fileprivate func write(
     _ bytes: ArraySlice<UInt8>,
-    to connection: borrowing TCPConnection
+    to connection: TCPConnection
   ) async throws(IOError) -> Int {
     // The buffer has to stay alive so we heap alloc here.
     // TODO: This can be done safely with async entrypoints
@@ -308,7 +309,7 @@ extension PThreadExecutor {
   }
 
   /// Writes all of the given bytes, which can take several writes.
-  fileprivate func write(all bytes: [UInt8], to connection: borrowing TCPConnection) async throws(IOError) {
+  fileprivate func write(all bytes: [UInt8], to connection: TCPConnection) async throws(IOError) {
     var remaining = bytes[...]
     while !remaining.isEmpty {
       let written = try await self.write(remaining, to: connection)
@@ -317,7 +318,7 @@ extension PThreadExecutor {
   }
 
   fileprivate func shutdown(
-    connection: borrowing TCPConnection,
+    connection: TCPConnection,
     direction: SocketShutdownDirection
   ) async throws(IOError) {
     try await withOperation(of: Void.self) { continuation, state in

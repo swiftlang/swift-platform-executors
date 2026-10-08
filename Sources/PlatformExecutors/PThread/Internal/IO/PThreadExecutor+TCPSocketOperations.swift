@@ -27,7 +27,8 @@ import Darwin
 @available(anyAppleOS 27.0, *)
 extension PThreadExecutor {
   /// A connected TCP socket of a ``PThreadExecutor``.
-  package struct TCPConnection: ~Copyable, Sendable {
+  // TODO: Make this `~Copyable` again once we have ~Copyable existentials
+  package struct TCPConnection: Sendable {
     /// The file descriptor of the socket.
     package var fileDescriptor: CInt
 
@@ -38,17 +39,18 @@ extension PThreadExecutor {
     /// Takes the file descriptor out of the socket, giving up ownership of it.
     fileprivate consuming func takeFileDescriptor() -> CInt {
       let fileDescriptor = self.fileDescriptor
-      discard self
+      // discard self
       return fileDescriptor
     }
 
-    deinit {
-      fatalError("A TCPConnection was destroyed without being closed.")
-    }
+    // deinit {
+    //   fatalError("A TCPConnection was destroyed without being closed.")
+    // }
   }
 
   /// A listening TCP socket of a ``PThreadExecutor``.
-  package struct TCPListener: ~Copyable, Sendable {
+  // TODO: Make this `~Copyable` again once we have ~Copyable existentials
+  package struct TCPListener: Sendable {
     /// The file descriptor of the listening socket.
     package var fileDescriptor: CInt
 
@@ -59,13 +61,13 @@ extension PThreadExecutor {
     /// Takes the file descriptor out of the listener, giving up ownership of it.
     fileprivate consuming func takeFileDescriptor() -> CInt {
       let fileDescriptor = self.fileDescriptor
-      discard self
+      // discard self
       return fileDescriptor
     }
 
-    deinit {
-      fatalError("A TCPListener was destroyed without being closed.")
-    }
+    // deinit {
+    //   fatalError("A TCPListener was destroyed without being closed.")
+    // }
   }
 }
 
