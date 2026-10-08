@@ -19,6 +19,46 @@
             "target": "PlatformExecutorsExample",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release PlatformExecutorsExample"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:swift-platform-executors}",
+            "name": "Debug TCPPingPong",
+            "target": "TCPPingPong",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug TCPPingPong"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:swift-platform-executors}",
+            "name": "Release TCPPingPong",
+            "target": "TCPPingPong",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release TCPPingPong"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:swift-platform-executors}",
+            "name": "Debug TCPEcho",
+            "target": "TCPEcho",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug TCPEcho"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:swift-platform-executors}",
+            "name": "Release TCPEcho",
+            "target": "TCPEcho",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release TCPEcho"
         }
     ]
 }

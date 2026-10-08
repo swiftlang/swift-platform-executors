@@ -170,6 +170,46 @@ struct TCPSocketTests {
     }
   }
 
+  @Test(arguments: [1, 4])
+  @available(anyAppleOS 27.0, *)
+  func concurrentEcho(poolSize: Int) async throws {
+    try await PThreadTaskExecutor.withExecutor(name: "TCPSocketTest", poolSize: poolSize) { executor in
+      try await withTaskExecutorPreference(executor) {
+        let listener = try await TCPListener.bind(to: Self.loopback)
+        let address = try listener.localAddress
+        // This is more than the socket buffers of both peers hold, so the
+        // client deadlocks if it does not read the echo while it writes.
+        let payload = (0..<(4 * 1024 * 1024)).map { UInt8(truncatingIfNeeded: $0) }
+
+        try await withThrowingTaskGroup(of: [UInt8].self) { group in
+          group.addTask {
+            let client = try await TCPConnection.connect(to: address)
+            let echoed = try await client.withSplit { readHalf, writeHalf in
+              let (echoed, _) = try await withConcurrently {
+                try await readHalf.readUntilEndOfStream()
+              } _: {
+                try await writeHalf.write(from: payload.span.bytes)
+                try await writeHalf.shutdown()
+              }
+              return echoed
+            }
+            try await client.close()
+            return echoed
+          }
+
+          var server = try await listener.accept()
+          try await server.echoUntilEndOfStream()
+          try await server.close()
+
+          let echoed = try await group.next()
+          #expect(echoed == payload)
+        }
+
+        try await listener.close()
+      }
+    }
+  }
+
   /// Echoes a payload through a connection between a client and a server task.
   @available(anyAppleOS 27.0, *)
   private static func echo() async throws {
@@ -218,6 +258,51 @@ extension TCPConnection {
       let initializedCount = output.finalize(for: buffer)
       #expect(initializedCount == count)
 
+      if count == 0 {
+        return received
+      }
+      received += UnsafeRawBufferPointer(rebasing: buffer[..<count])
+    }
+  }
+}
+
+@available(anyAppleOS 27.0, *)
+extension TCPConnection {
+  /// Writes everything back that the peer sends until it closes its side of the connection.
+  fileprivate mutating func echoUntilEndOfStream() async throws(IOError) {
+    // The buffer has to stay alive while the read is in flight so we heap alloc here.
+    let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: 64 * 1024, alignment: 1)
+    defer {
+      buffer.deallocate()
+    }
+
+    while true {
+      var output = OutputRawSpan(buffer: buffer, initializedCount: 0)
+      let count = try await self.read(into: &output)
+      _ = output.finalize(for: buffer)
+      if count == 0 {
+        return
+      }
+      try await self.write(from: RawSpan(_unsafeBytes: UnsafeRawBufferPointer(rebasing: buffer[..<count])))
+    }
+  }
+}
+
+@available(anyAppleOS 27.0, *)
+extension TCPConnection.ReadHalf {
+  /// Reads until the peer closed its side of the connection.
+  fileprivate func readUntilEndOfStream() async throws(IOError) -> [UInt8] {
+    // The buffer has to stay alive while the read is in flight so we heap alloc here.
+    let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: 64 * 1024, alignment: 1)
+    defer {
+      buffer.deallocate()
+    }
+
+    var received = [UInt8]()
+    while true {
+      var output = OutputRawSpan(buffer: buffer, initializedCount: 0)
+      let count = try await self.read(into: &output)
+      _ = output.finalize(for: buffer)
       if count == 0 {
         return received
       }

@@ -88,6 +88,13 @@ let package = Package(
       ],
       path: "Examples/TCPPingPong"
     ),
+    .executableTarget(
+      name: "TCPEcho",
+      dependencies: [
+        .target(name: "PlatformExecutors")
+      ],
+      path: "Examples/TCPEcho"
+    ),
   ]
 )
 
@@ -110,6 +117,9 @@ where [.executable, .test, .regular].contains(
   // https://github.com/swiftlang/swift-evolution/blob/main/proposals/0461-async-function-isolation.md
   // Only enabled from Swift 6.4 on, since older compilers crash on parts of the code base with this feature enabled
   settings.append(.enableUpcomingFeature("NonisolatedNonsendingByDefault"))
+
+  // Lifetime dependencies of non-escapable types such as the halves of a split TCP connection.
+  settings.append(.enableExperimentalFeature("Lifetimes"))
 
   //  // https://github.com/swiftlang/swift-evolution/blob/main/proposals/0480-swiftpm-warning-control.md
   //  settings.append(.treatAllWarnings(as: .error))
