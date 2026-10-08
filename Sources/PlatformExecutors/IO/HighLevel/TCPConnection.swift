@@ -74,14 +74,15 @@ public struct TCPConnection: ~Copyable, Sendable {
   /// The address that the socket is bound to locally.
   public var localAddress: SocketAddress {
     get throws(IOError) {
-      try self.localAddress(on: self.scheduler)
+      try Self.localAddress(connection: self.connection, on: self.scheduler)
     }
   }
 
-  private func localAddress<Scheduler: TCPSocketOperationScheduler>(
+  private static func localAddress<Scheduler: TCPSocketOperationScheduler>(
+    connection: (any Sendable)?,
     on scheduler: Scheduler
   ) throws(IOError) -> SocketAddress {
-    try scheduler.localAddress(of: self.connection(of: scheduler))
+    try scheduler.localAddress(of: Self.connection(connection, of: scheduler))
   }
 
   /// Reads once from the socket into the free capacity of the given buffer.
@@ -93,14 +94,15 @@ public struct TCPConnection: ~Copyable, Sendable {
   ///   that the buffer has no free capacity.
   @discardableResult
   public mutating func read(into buffer: inout OutputRawSpan) async throws(IOError) -> Int {
-    try await self.read(into: &buffer, on: self.scheduler)
+    try await Self.read(into: &buffer, connection: self.connection, on: self.scheduler)
   }
 
-  private func read<Scheduler: TCPSocketOperationScheduler>(
+  private static func read<Scheduler: TCPSocketOperationScheduler>(
     into buffer: inout OutputRawSpan,
+    connection: (any Sendable)?,
     on scheduler: Scheduler
   ) async throws(IOError) -> Int {
-    let connection = self.connection(of: scheduler)
+    let connection = Self.connection(connection, of: scheduler)
     let count = try await withOperation(on: scheduler, of: Int.self) { continuation, state in
       scheduler.submitRead(
         continuation,
@@ -124,14 +126,15 @@ public struct TCPConnection: ~Copyable, Sendable {
   ///
   /// - Parameter buffer: The buffer to write.
   public mutating func write(from buffer: RawSpan) async throws(IOError) {
-    try await self.write(from: buffer, on: self.scheduler)
+    try await Self.write(from: buffer, connection: self.connection, on: self.scheduler)
   }
 
-  private func write<Scheduler: TCPSocketOperationScheduler>(
+  private static func write<Scheduler: TCPSocketOperationScheduler>(
     from buffer: RawSpan,
+    connection: (any Sendable)?,
     on scheduler: Scheduler
   ) async throws(IOError) {
-    let connection = self.connection(of: scheduler)
+    let connection = Self.connection(connection, of: scheduler)
     var remaining = buffer
     while !remaining.isEmpty {
       let count = try await withOperation(
@@ -156,14 +159,15 @@ public struct TCPConnection: ~Copyable, Sendable {
   ///
   /// - Parameter direction: The direction to shut down.
   public mutating func shutdown(_ direction: SocketShutdownDirection) async throws(IOError) {
-    try await self.shutdown(direction, on: self.scheduler)
+    try await Self.shutdown(direction, connection: self.connection, on: self.scheduler)
   }
 
-  private func shutdown<Scheduler: TCPSocketOperationScheduler>(
+  private static func shutdown<Scheduler: TCPSocketOperationScheduler>(
     _ direction: SocketShutdownDirection,
+    connection: (any Sendable)?,
     on scheduler: Scheduler
   ) async throws(IOError) {
-    let connection = self.connection(of: scheduler)
+    let connection = Self.connection(connection, of: scheduler)
     try await withOperation(on: scheduler, of: Void.self) { continuation, state in
       scheduler.submitShutdown(continuation, state: &state, connection: connection, direction: direction)
     }
@@ -188,19 +192,116 @@ public struct TCPConnection: ~Copyable, Sendable {
 
   /// Returns the handle of the socket as the handle type of the given scheduler.
   ///
-  /// - Parameter scheduler: The scheduler that services the socket.
-  private func connection<Scheduler: TCPSocketOperationScheduler>(
+  /// - Parameters:
+  ///   - connection: The erased handle of the socket.
+  ///   - scheduler: The scheduler that services the socket.
+  private static func connection<Scheduler: TCPSocketOperationScheduler>(
+    _ connection: (any Sendable)?,
     of scheduler: Scheduler
   ) -> Scheduler.TCPConnection {
     // The handle was created by this scheduler, and it is only `nil` once
     // the socket is closed, which consumes it. So the cast cannot fail.
-    self.connection as! Scheduler.TCPConnection
+    connection as! Scheduler.TCPConnection
   }
 
   deinit {
     if self.connection != nil {
       fatalError("A TCPConnection was destroyed without being closed.")
     }
+  }
+}
+
+// MARK: - Reading and writing concurrently
+
+@available(anyAppleOS 27.0, *)
+extension TCPConnection {
+  /// The read direction of a connection, lent out by ``TCPConnection/withSplit(_:)``.
+  public struct ReadHalf: ~Copyable, ~Escapable, Sendable {
+    /// The scheduler that services the socket.
+    private let scheduler: any TCPSocketOperationScheduler
+
+    /// The scheduler's handle of the socket.
+    private let connection: (any Sendable)?
+
+    @_lifetime(borrow owner)
+    fileprivate init(_ owner: borrowing TCPConnection) {
+      self.scheduler = owner.scheduler
+      self.connection = owner.connection
+    }
+
+    /// Reads once from the socket into the free capacity of the given buffer.
+    ///
+    /// The bytes are appended to the buffer. A read can return fewer bytes than the free capacity of the
+    /// buffer.
+    ///
+    /// - Parameter buffer: The buffer to read into.
+    /// - Returns: The number of bytes read. Zero indicates that the peer closed its side of the connection, or
+    ///   that the buffer has no free capacity.
+    @discardableResult
+    public func read(into buffer: inout OutputRawSpan) async throws(IOError) -> Int {
+      try await TCPConnection.read(into: &buffer, connection: self.connection, on: self.scheduler)
+    }
+  }
+
+  /// The write direction of a connection, lent out by ``TCPConnection/withSplit(_:)``.
+  public struct WriteHalf: ~Copyable, ~Escapable, Sendable {
+    /// The scheduler that services the socket.
+    private let scheduler: any TCPSocketOperationScheduler
+
+    /// The scheduler's handle of the socket.
+    private let connection: (any Sendable)?
+
+    @_lifetime(borrow owner)
+    fileprivate init(_ owner: borrowing TCPConnection) {
+      self.scheduler = owner.scheduler
+      self.connection = owner.connection
+    }
+
+    /// Writes all bytes of the given buffer to the socket.
+    ///
+    /// This can take several writes if the platform accepts only part of the bytes at a time.
+    ///
+    /// - Parameter buffer: The buffer to write.
+    public func write(from buffer: RawSpan) async throws(IOError) {
+      try await TCPConnection.write(from: buffer, connection: self.connection, on: self.scheduler)
+    }
+
+    /// Shuts down the write direction of the socket.
+    ///
+    /// This sends a `FIN` to the peer, which observes it as the end of the stream once it has received all
+    /// data that is still in flight.
+    public func shutdown() async throws(IOError) {
+      try await TCPConnection.shutdown(.write, connection: self.connection, on: self.scheduler)
+    }
+  }
+
+  /// Lends the read and the write direction of the connection to the given closure.
+  ///
+  /// The halves can be used concurrently allowing protocols to sends and receives independently.
+  ///
+  /// ```swift
+  /// let reply = try await connection.withSplit { readHalf, writeHalf in
+  ///   let (reply, _) = try await withConcurrently {
+  ///     try await readReply(from: readHalf)
+  ///   } _: {
+  ///     try await writeHalf.write(from: request.bytes)
+  ///     try await writeHalf.shutdown()
+  ///   }
+  ///   return reply
+  /// }
+  /// ```
+  ///
+  /// - Important: The halves cannot escape the closure, so the connection keeps owning the socket
+  /// and must still be closed afterwards.
+  ///
+  /// - Parameter body: The closure that the halves are lent to.
+  /// - Returns: The value that the closure returned.
+  public nonisolated(nonsending) func withSplit<Return, Failure: Error>(
+    _ body: nonisolated(nonsending) (borrowing ReadHalf, borrowing WriteHalf) async throws(Failure) -> Return
+  ) async throws(Failure) -> Return {
+    let readHalf = ReadHalf(self)
+    let writeHalf = WriteHalf(self)
+    return try await body(readHalf, writeHalf)
   }
 }
 #endif
