@@ -219,6 +219,9 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     return self.thread?.description ?? "not running"
   }
 
+  /// The index of this executor in the pool of a ``PThreadTaskExecutor``, or zero if it is not part of a pool.
+  internal let poolIndex: Int
+
   /// Returns if we are currently running on the executor.
   internal var onExecutor: Bool {
     return self.thread?.isCurrent ?? false
@@ -281,10 +284,11 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   internal convenience init(
     name: String,
     stackSize: Int? = nil,
+    poolIndex: Int = 0,
     serialExecutor: UnownedSerialExecutor?,
     taskExecutor: UnownedTaskExecutor?
   ) {
-    self.init()
+    self.init(poolIndex: poolIndex)
 
     let conditionVariable = ConditionVariable(true)
     let thread = Thread.spawnAndRun(name: name, stackSize: stackSize) {
@@ -335,7 +339,8 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     }
   }
 
-  internal init() {
+  internal init(poolIndex: Int = 0) {
+    self.poolIndex = poolIndex
     self._threadBoundState = .init(
       _nextExecutedJobs: ContiguousArray()
     )
@@ -755,34 +760,18 @@ internal enum SubmittedIOCommand: ~Copyable, Sendable {
 @available(anyAppleOS 27.0, *)
 extension PThreadExecutor {
   /// The state that a ``PThreadExecutor`` needs per in-flight operation.
-  // TODO: We should probably introduce a per operation state to make them
-  // as small and focused as possible.
-  package struct OperationState: ~Copyable {
-    /// The address that an operation connects to, or that an accept writes the peer's address into.
-    internal var address = sockaddr_storage()
+  package typealias OperationState = PThreadOperationState
+}
 
-    /// The length of ``address``.
-    internal var addressLength = socklen_t(MemoryLayout<sockaddr_storage>.size)
-
-    /// Creates the state of an operation.
-    ///
-    /// - Parameter address: The address that the operation needs to outlive its submission, if it has one. The
-    ///   kernel reads this while the submitter is suspended, so it is copied in here rather than pointed at on
-    ///   the submitter's stack.
-    internal init(address: SocketAddress?) {
-      if let address {
-        self.addressLength = address.write(into: &self.address)
-      }
-    }
-  }
-
+@available(anyAppleOS 27.0, *)
+extension PThreadExecutor {
   /// What an in-flight operation resumes when its result arrives.
   internal enum Resumption: ~Copyable {
     /// Resumes with a connected socket.
-    case connection(Continuation<TCPConnection, IOError>, socket: CInt)
+    case connection(Continuation<TCPConnection, IOError>, socket: CInt, executorIndex: Int)
 
     /// Resumes with the connection that an accept produced.
-    case acceptedConnection(Continuation<TCPConnection, IOError>)
+    case acceptedConnection(Continuation<TCPConnection, IOError>, executorIndex: Int)
 
     /// Resumes with the number of bytes that a read or a write transferred.
     case byteCount(Continuation<Int, IOError>)
@@ -793,10 +782,10 @@ extension PThreadExecutor {
     /// Resumes the continuation with the result that the backend reported.
     internal consuming func resume(with result: Result<Int, IOError>) {
       switch consume self {
-      case .connection(let continuation, let socket):
+      case .connection(let continuation, let socket, let executorIndex):
         switch result {
         case .success:
-          continuation.resume(returning: TCPConnection(fileDescriptor: socket))
+          continuation.resume(returning: TCPConnection(fileDescriptor: socket, executorIndex: executorIndex))
         case .failure(let error):
           // We created the socket so we have to close it
           // TODO: In the future with io_uring we need to go through the backend
@@ -805,10 +794,12 @@ extension PThreadExecutor {
           continuation.resume(throwing: error)
         }
 
-      case .acceptedConnection(let continuation):
+      case .acceptedConnection(let continuation, let executorIndex):
         switch result {
         case .success(let fileDescriptor):
-          continuation.resume(returning: TCPConnection(fileDescriptor: CInt(fileDescriptor)))
+          continuation.resume(
+            returning: TCPConnection(fileDescriptor: CInt(fileDescriptor), executorIndex: executorIndex)
+          )
         case .failure(let error):
           continuation.resume(throwing: error)
         }

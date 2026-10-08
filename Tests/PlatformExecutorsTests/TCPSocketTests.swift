@@ -69,6 +69,16 @@ struct TCPSocketTests {
     }
   }
 
+  @Test(arguments: [1, 4])
+  @available(anyAppleOS 27.0, *)
+  func echoWithPThreadTaskExecutorPreference(poolSize: Int) async throws {
+    try await PThreadTaskExecutor.withExecutor(name: "TCPSocketTest", poolSize: poolSize) { executor in
+      try await withTaskExecutorPreference(executor) {
+        try await Self.echo()
+      }
+    }
+  }
+
   @Test
   @available(anyAppleOS 27.0, *)
   func echoWithTaskExecutorPreference() async throws {
