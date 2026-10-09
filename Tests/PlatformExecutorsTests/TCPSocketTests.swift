@@ -46,14 +46,11 @@ struct TCPSocketTests {
   func connectToRefusedPortFails() async throws {
     try await PThreadExecutor.withExecutor(name: "TCPSocketTest") { executor in
       try await withOperationScheduler(executor) {
-        // Bind a listener to get a port that is not listening once it is closed again.
-        let listener = try await TCPListener.bind(to: Self.loopback)
-        let address = try listener.localAddress
-        try await listener.close()
-
-        await #expect(throws: IOError.self) {
-          let socket = try await TCPConnection.connect(to: address)
-          try await socket.close()
+        try await withRefusingAddress { address in
+          await #expect(throws: IOError.self) {
+            let socket = try await TCPConnection.connect(to: address)
+            try await socket.close()
+          }
         }
       }
     }
