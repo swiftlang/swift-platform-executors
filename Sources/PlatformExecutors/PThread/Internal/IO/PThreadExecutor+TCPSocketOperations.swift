@@ -27,48 +27,10 @@ import Darwin
 @available(anyAppleOS 27.0, *)
 extension PThreadExecutor {
   /// A connected TCP socket of a ``PThreadExecutor``.
-  // TODO: Make this `~Copyable` again once we have ~Copyable existentials
-  package struct TCPConnection: Sendable {
-    /// The file descriptor of the socket.
-    package var fileDescriptor: CInt
-
-    internal init(fileDescriptor: CInt) {
-      self.fileDescriptor = fileDescriptor
-    }
-
-    /// Takes the file descriptor out of the socket, giving up ownership of it.
-    fileprivate consuming func takeFileDescriptor() -> CInt {
-      let fileDescriptor = self.fileDescriptor
-      // discard self
-      return fileDescriptor
-    }
-
-    // deinit {
-    //   fatalError("A TCPConnection was destroyed without being closed.")
-    // }
-  }
+  package typealias TCPConnection = PThreadTCPConnection
 
   /// A listening TCP socket of a ``PThreadExecutor``.
-  // TODO: Make this `~Copyable` again once we have ~Copyable existentials
-  package struct TCPListener: Sendable {
-    /// The file descriptor of the listening socket.
-    package var fileDescriptor: CInt
-
-    internal init(fileDescriptor: CInt) {
-      self.fileDescriptor = fileDescriptor
-    }
-
-    /// Takes the file descriptor out of the listener, giving up ownership of it.
-    fileprivate consuming func takeFileDescriptor() -> CInt {
-      let fileDescriptor = self.fileDescriptor
-      // discard self
-      return fileDescriptor
-    }
-
-    // deinit {
-    //   fatalError("A TCPListener was destroyed without being closed.")
-    // }
-  }
+  package typealias TCPListener = PThreadTCPListener
 }
 
 // MARK: - TCP socket operations
@@ -89,7 +51,7 @@ extension PThreadExecutor: TCPSocketOperationScheduler {
     }
 
     return self.submit(
-      .connection(continuation, socket: socket),
+      .connection(continuation, socket: socket, executorIndex: self.poolIndex),
       request: .connect(socket: socket, to: address),
       state: &state
     )
@@ -119,7 +81,7 @@ extension PThreadExecutor: TCPSocketOperationScheduler {
       return Self.completedRegistration
     }
 
-    continuation.resume(returning: TCPListener(fileDescriptor: socket))
+    continuation.resume(returning: TCPListener(fileDescriptor: socket, executorIndex: self.poolIndex))
     return Self.completedRegistration
   }
 
@@ -129,7 +91,7 @@ extension PThreadExecutor: TCPSocketOperationScheduler {
     listener: borrowing TCPListener
   ) -> OperationRegistration {
     self.submit(
-      .acceptedConnection(continuation),
+      .acceptedConnection(continuation, executorIndex: self.poolIndex),
       request: .accept(socket: listener.fileDescriptor),
       state: &state
     )

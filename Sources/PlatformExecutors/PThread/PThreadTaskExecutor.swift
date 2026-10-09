@@ -47,7 +47,7 @@ public final class PThreadTaskExecutor: TaskExecutor {
   ///
   /// This is nonisolated(unsafe) and a var since we need to pass self to the individual threads which requires
   /// us to be fully initialized.
-  private nonisolated(unsafe) var executors: [PThreadExecutor]!
+  internal nonisolated(unsafe) var executors: [PThreadExecutor]!
   /// The current index for selecting the next executor to run on.
   private let index = Atomic<Int>(0)
 
@@ -82,6 +82,7 @@ public final class PThreadTaskExecutor: TaskExecutor {
           PThreadExecutor(
             name: "\(name)-\(i)",
             stackSize: stackSize,
+            poolIndex: i,
             serialExecutor: nil,
             taskExecutor: taskExecutor
           )
@@ -153,10 +154,63 @@ public final class PThreadTaskExecutor: TaskExecutor {
     self.next().enqueue(job)
   }
 
-  private func next() -> PThreadExecutor {
+  internal func next() -> PThreadExecutor {
     self.executors[abs(self.index.wrappingAdd(1, ordering: .relaxed).newValue % self.executors.count)]
   }
 }
+
+#if ExperimentalIO
+// MARK: - Routing operations to the pool's executors
+
+@available(anyAppleOS 27.0, *)
+extension PThreadTaskExecutor {
+  /// Returns the registration of the pool for the registration of one of its executors.
+  ///
+  /// The registration of the pool has to identify both the executor and the operation on that executor, so
+  /// that cancelling the operation or escalating its priority reaches the right executor. Both are packed
+  /// into the identifier by treating it as a number in base `executors.count`, whose lowest digit is the
+  /// index of the executor:
+  ///
+  ///     poolID = executorID * executors.count + executorIndex
+  ///
+  /// ``executorRegistration(of:)`` reverses this.
+  ///
+  /// - Parameters:
+  ///   - registration: The registration of the executor.
+  ///   - executorIndex: The index of the executor in the pool.
+  internal func poolRegistration(
+    of registration: OperationRegistration,
+    executorIndex: Int
+  ) -> OperationRegistration {
+    guard registration.id != 0 else {
+      // The operation already completed, so there is nothing to cancel later.
+      return registration
+    }
+    return OperationRegistration(
+      id: registration.id &* UInt(self.executors.count) &+ UInt(executorIndex)
+    )
+  }
+
+  /// Returns the executor and its registration for a registration of the pool.
+  ///
+  /// This reverses ``poolRegistration(of:executorIndex:)``.
+  ///
+  /// - Parameter registration: The registration of the pool.
+  /// - Returns: The index of the executor and its registration, or `nil` if the operation already completed.
+  internal func executorRegistration(
+    of registration: OperationRegistration
+  ) -> (executorIndex: Int, registration: OperationRegistration)? {
+    guard registration.id != 0 else {
+      return nil
+    }
+    let executorCount = UInt(self.executors.count)
+    return (
+      executorIndex: Int(registration.id % executorCount),
+      registration: OperationRegistration(id: registration.id / executorCount)
+    )
+  }
+}
+#endif
 
 #if !canImport(Darwin)
 @_spi(ExperimentalScheduling) extension PThreadTaskExecutor: SchedulingExecutor {
