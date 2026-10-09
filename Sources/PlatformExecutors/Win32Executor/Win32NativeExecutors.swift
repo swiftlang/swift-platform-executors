@@ -281,7 +281,7 @@ private func GetMessage(
 /// ```
 @safe
 @available(macOS 9999, *)
-public final class Win32EventLoopExecutor: SerialExecutor, RunLoopExecutor, @unchecked Sendable {
+package final class Win32EventLoopExecutor: SerialExecutor, @unchecked Sendable {
 
   struct Timestamp {
     /// The earliest time at which a job should run.
@@ -613,9 +613,9 @@ public final class Win32EventLoopExecutor: SerialExecutor, RunLoopExecutor, @unc
   #endif  // canImport(WinSDK)
 
   /// Return `self` as a `SchedulingExecutor`.
-  public var asSchedulingExecutor: SchedulingExecutor? {
-    return self
-  }
+  //public var asSchedulingExecutor: SchedulingExecutor? {
+  //  return self
+  //}
 }
 
 @available(macOS 9999, *)
@@ -686,6 +686,10 @@ public final class Win32EventLoopExecutor: SerialExecutor, RunLoopExecutor, @unc
     #endif  // canImport(WinSDK)
   }
 
+}
+
+@available(macOS 9999, *)
+extension Win32EventLoopExecutor: RunLoopExecutor {
 }
 
 @available(macOS 9999, *)
@@ -932,12 +936,16 @@ private func _runJobFromTimerCallback(
           DWORD(truncatingIfNeeded: -delay100ns >> 32)
       )
     } else {
-      clock.enqueue(
-        job,
-        on: self,
-        at: clock.now.advanced(by: delay),
-        tolerance: tolerance
-      )
+      fatalError("Unable to enqueue for unrecognised clock")
+
+      // Eventually we'll be able to do something like this:
+      //
+      //clock.enqueue(
+      //  job,
+      //  on: self,
+      //  at: clock.now.advanced(by: delay),
+      //  tolerance: tolerance
+      //)
       return
     }
 
