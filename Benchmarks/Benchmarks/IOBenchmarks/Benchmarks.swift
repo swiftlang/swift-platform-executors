@@ -37,4 +37,22 @@ let benchmarks: @Sendable () -> Void = {
       benchmark: benchmark
     )
   }
+
+  Benchmark(
+    "TCPEcho",
+    configuration: .init(
+      metrics: defaultMetrics,
+      scalingFactor: .kilo,
+      maxDuration: .seconds(10_000_000),
+      maxIterations: 5
+    )
+  ) { benchmark in
+    guard #available(anyAppleOS 27.0, *) else {
+      fatalError("The TCP echo benchmark requires the I/O APIs.")
+    }
+    try await runTCPEcho(
+      numberOfMessages: benchmark.scaledIterations.upperBound,
+      benchmark: benchmark
+    )
+  }
 }
