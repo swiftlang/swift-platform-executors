@@ -12,6 +12,7 @@ let package = Package(
     // checkout, which breaks in git worktrees (where the directory is named after the worktree).
     .package(name: "swift-platform-executors", path: "../", traits: ["ExperimentalIO"]),
     .package(url: "https://github.com/ordo-one/benchmark.git", from: "1.37.0"),
+    .package(url: "https://github.com/apple/swift-collections.git", exact: "1.7.1"),
   ],
   targets: [
     .executableTarget(
@@ -19,6 +20,7 @@ let package = Package(
       dependencies: [
         .product(name: "Benchmark", package: "benchmark"),
         .product(name: "PlatformExecutors", package: "swift-platform-executors"),
+        .product(name: "BasicContainers", package: "swift-collections"),
       ],
       path: "Benchmarks/IOBenchmarks",
       plugins: [

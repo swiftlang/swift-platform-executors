@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+import BasicContainers
 import Benchmark
 import PlatformExecutors
 
@@ -23,6 +24,9 @@ private let messageSize = 10_000
 ///   - benchmark: The benchmark to measure.
 @available(anyAppleOS 27.0, *)
 func runTCPEcho(numberOfMessages: Int, benchmark: Benchmark) async throws {
+  var clientBuffers: EchoClientBuffers? = EchoClientBuffers()
+  var serverBuffer = UniqueArray<UInt8>(minimumCapacity: messageSize)
+
   try await PThreadTaskExecutor.withExecutor(name: "TCPEcho", poolSize: 1) { executor in
     try await withTaskExecutorPreference(executor) {
       benchmark.startMeasurement()
@@ -34,12 +38,16 @@ func runTCPEcho(numberOfMessages: Int, benchmark: Benchmark) async throws {
       let address = try listener.localAddress
 
       try await withThrowingTaskGroup { group in
+        // A noncopyable value cannot be consumed out of a closure capture, so the
+        // arrays are moved into the child task through an optional.
+        var clientBuffersBox = clientBuffers.take()
         group.addTask {
-          try await runEchoClient(connectingTo: address, numberOfMessages: numberOfMessages)
+          var buffers = clientBuffersBox.take()!
+          try await runEchoClient(connectingTo: address, numberOfMessages: numberOfMessages, buffers: &buffers)
         }
 
         var connection = try await listener.accept()
-        try await runEchoServer(on: &connection)
+        try await runEchoServer(on: &connection, buffer: &serverBuffer)
         try await connection.close()
 
         try await group.waitForAll()
@@ -50,33 +58,41 @@ func runTCPEcho(numberOfMessages: Int, benchmark: Benchmark) async throws {
   }
 }
 
+/// The arrays that the client reads into and writes from.
+@available(anyAppleOS 27.0, *)
+private struct EchoClientBuffers: ~Copyable {
+  /// The array that the client reads the echoes into.
+  var readBuffer = UniqueArray<UInt8>(minimumCapacity: messageSize)
+
+  /// The message that the client writes.
+  var message = UniqueArray<UInt8>(repeating: 0, count: messageSize)
+}
+
 /// Writes the messages while concurrently reading their echoes.
 @available(anyAppleOS 27.0, *)
-private func runEchoClient(connectingTo address: SocketAddress, numberOfMessages: Int) async throws {
+private func runEchoClient(
+  connectingTo address: SocketAddress,
+  numberOfMessages: Int,
+  buffers: inout EchoClientBuffers
+) async throws {
   let connection = try await TCPConnection.connect(to: address)
 
   try await connection.withSplit { readHalf, writeHalf in
     _ = try await withConcurrently {
-      // The buffer has to stay alive while a read is in flight so we heap alloc here.
-      let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: messageSize, alignment: 1)
-      defer {
-        buffer.deallocate()
-      }
-
       var remaining = numberOfMessages * messageSize
       while remaining > 0 {
-        var output = OutputRawSpan(buffer: buffer, initializedCount: 0)
-        let count = try await readHalf.read(into: &output)
-        _ = output.finalize(for: buffer)
+        buffers.readBuffer.removeAll()
+        let count = try await buffers.readBuffer.append(addingByteCount: messageSize) { output in
+          try await readHalf.read(into: &output)
+        }
         if count == 0 {
           throw EchoError.unexpectedEndOfStream
         }
         remaining -= count
       }
-    } _: {
-      let message = [UInt8](repeating: 0, count: messageSize)
+    } _: { [message = buffers.message.span] in
       for _ in 0..<numberOfMessages {
-        try await writeHalf.write(from: message.span.bytes)
+        try await writeHalf.write(from: message.bytes)
       }
       try await writeHalf.shutdown()
     }
@@ -87,21 +103,16 @@ private func runEchoClient(connectingTo address: SocketAddress, numberOfMessages
 
 /// Echoes everything the client sends until the client closes the connection.
 @available(anyAppleOS 27.0, *)
-private func runEchoServer(on connection: inout TCPConnection) async throws {
-  // The buffer has to stay alive while a read is in flight so we heap alloc here.
-  let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: messageSize, alignment: 1)
-  defer {
-    buffer.deallocate()
-  }
-
+private func runEchoServer(on connection: inout TCPConnection, buffer: inout UniqueArray<UInt8>) async throws {
   while true {
-    var output = OutputRawSpan(buffer: buffer, initializedCount: 0)
-    let count = try await connection.read(into: &output)
-    _ = output.finalize(for: buffer)
+    buffer.removeAll()
+    let count = try await buffer.append(addingByteCount: messageSize) { output in
+      try await connection.read(into: &output)
+    }
     if count == 0 {
       return
     }
-    try await connection.write(from: RawSpan(_unsafeBytes: UnsafeRawBufferPointer(rebasing: buffer[..<count])))
+    try await connection.write(from: buffer.span.bytes)
   }
 }
 
