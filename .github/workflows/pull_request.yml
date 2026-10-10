@@ -12,7 +12,13 @@ jobs:
     name: Test
     uses: swiftlang/github-workflows/.github/workflows/swift_package_test.yml@main
     with:
-      linux_swift_versions: "[\"nightly-main\"]"
+      # The split continuation of https://github.com/swiftlang/swift/pull/91981 is not in a nightly toolchain
+      # yet, so the Linux tests run with a toolchain of that PR, which exists for Ubuntu 26.04 on aarch64.
+      # Revert this once the PR landed in a nightly toolchain.
+      linux_swift_versions: "[\"6.4\"]"
+      linux_os_versions: "[\"resolute\"]"
+      linux_host_archs: "[\"aarch64\"]"
+      linux_pre_build_command: "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y curl && curl -fsSL -o /tmp/toolchain.tar.gz https://download.swift.org/tmp/pull-request/91981/9/ubuntu2604/PR-ubuntu2604.tar.gz && tar -xzf /tmp/toolchain.tar.gz -C / && rm /tmp/toolchain.tar.gz"
       windows_swift_versions: "[\"nightly\"]"
       linux_build_command: swift test --traits ExperimentalIO
 

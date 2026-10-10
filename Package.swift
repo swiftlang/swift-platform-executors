@@ -12,6 +12,12 @@ if ProcessInfo.processInfo.environment["SPI_PROCESSING"] == "1"
   swiftSettings.append(.define("BUILDING_DOCS"))
 }
 
+// The split continuation of swiftlang/swift#91981 is `anyAppleOS 9999` SPI in the toolchains that the I/O
+// interfaces require, so availability checking is disabled for the library.
+swiftSettings.append(
+  .unsafeFlags(["-Xfrontend", "-disable-availability-checking"], .when(traits: ["ExperimentalIO"]))
+)
+
 let package = Package(
   name: "swift-platform-executors",
   products: [
@@ -23,6 +29,13 @@ let package = Package(
     )
   ],
   traits: [
+    // The I/O interfaces require a toolchain that contains the split continuation of
+    // https://github.com/swiftlang/swift/pull/91981, which wires through cancellation and priority
+    // escalation of the operations. The toolchains can be downloaded from:
+    // - Linux: https://download.swift.org/tmp/pull-request/91981/9/ubuntu2604/PR-ubuntu2604.tar.gz
+    // - macOS: https://download.swift.org/tmp/pull-request/91981/2475/xcode/swift-PR-91981-2475-osx.tar.gz
+    // On macOS, processes have to run against the Concurrency runtime of the toolchain, for example with
+    // `DYLD_LIBRARY_PATH=<toolchain>/usr/lib/swift/macosx`.
     .trait(
       name: "ExperimentalIO",
       description: "Trait guarding experimental and highly unstable I/O interfaces"

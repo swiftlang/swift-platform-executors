@@ -86,8 +86,7 @@ struct TCPSocketTests {
     }
   }
 
-  // TODO: Enable this again once the high level types support cancellation.
-  @Test(.disabled("Cancellation is not supported until we have the split continuation."))
+  @Test
   @available(anyAppleOS 27.0, *)
   func acceptOnACancelledTaskResumesWithCancelled() async throws {
     try await PThreadExecutor.withExecutor(name: "TCPSocketTest") { executor in
@@ -113,35 +112,169 @@ struct TCPSocketTests {
     }
   }
 
-  // TODO: Enable this again once the high level types support cancellation.
-  @Test(.disabled("Cancellation is not supported until we have the split continuation."))
+  @Test
   @available(anyAppleOS 27.0, *)
   func cancellingAPendingAcceptResumesWithCancelled() async throws {
     try await PThreadExecutor.withExecutor(name: "TCPSocketTest") { executor in
       try await withOperationScheduler(executor) {
-        let (bound, boundContinuation) = AsyncStream.makeStream(of: Void.self)
+        try await Self.cancelPendingAccept()
+      }
+    }
+  }
+
+  @Test(arguments: [1, 4])
+  @available(anyAppleOS 27.0, *)
+  func cancellingAPendingAcceptOnTheExecutorResumesWithCancelled(poolSize: Int) async throws {
+    // The task that cancels runs on the executor, so the cancellation
+    // reaches the backend directly instead of through the executor's queue.
+    try await PThreadTaskExecutor.withExecutor(name: "TCPSocketTest", poolSize: poolSize) { executor in
+      try await withTaskExecutorPreference(executor) {
+        try await Self.cancelPendingAccept()
+      }
+    }
+  }
+
+  /// Cancels an accept that waits for a connection that never comes.
+  @available(anyAppleOS 27.0, *)
+  private static func cancelPendingAccept() async throws {
+    let (bound, boundContinuation) = AsyncStream.makeStream(of: Void.self)
+
+    try await withThrowingTaskGroup { group in
+      group.addTask {
+        let listener = try await TCPListener.bind(to: Self.loopback)
+        boundContinuation.yield()
+
+        // Nothing connects, so the accept waits until the task is cancelled.
+        let error = await #expect(throws: IOError.self) {
+          let socket = try await listener.accept()
+          try await socket.close()
+        }
+        #expect(error?.code == .cancelled)
+
+        // Closing is not cancellable, so it still closes the listener.
+        try await listener.close()
+      }
+
+      for await _ in bound {
+        break
+      }
+      group.cancelAll()
+      try await group.waitForAll()
+    }
+  }
+
+  @Test
+  @available(anyAppleOS 27.0, *)
+  func cancellingAPendingReadResumesWithCancelledAndKeepsTheConnection() async throws {
+    try await PThreadExecutor.withExecutor(name: "TCPSocketTest") { executor in
+      try await withOperationScheduler(executor) {
+        let listener = try await TCPListener.bind(to: Self.loopback)
+        var client = try await TCPConnection.connect(to: listener.localAddress)
+        let payload = Array("Sent after the read was cancelled".utf8)
+        let (cancelled, cancelledContinuation) = AsyncStream.makeStream(of: Void.self)
 
         try await withThrowingTaskGroup { group in
+          // A noncopyable value cannot be consumed out of a closure capture, so the
+          // connection is moved into the child task through an optional.
+          var serverBox: TCPConnection? = try await listener.accept()
           group.addTask {
-            let listener = try await TCPListener.bind(to: Self.loopback)
-            boundContinuation.yield()
+            var server = serverBox.take()!
 
-            // Nothing connects, so the accept waits until the task is cancelled.
+            // Nothing was sent yet, so the read waits until the task is cancelled.
             let error = await #expect(throws: IOError.self) {
-              let socket = try await listener.accept()
-              try await socket.close()
+              _ = try await server.read(count: 1024)
             }
             #expect(error?.code == .cancelled)
+            cancelledContinuation.yield()
 
-            try await listener.close()
+            // The connection is still usable after the cancelled read, and the
+            // shield keeps the next read from being cancelled while it waits.
+            let received = try await withTaskCancellationShield { () async throws(IOError) -> [UInt8] in
+              try await server.readUntilEndOfStream()
+            }
+            #expect(received == payload)
+            try await server.close()
           }
 
-          for await _ in bound {
+          group.cancelAll()
+          for await _ in cancelled {
+            break
+          }
+          try await client.write(from: payload.span.bytes)
+          try await client.shutdown(.write)
+          try await group.waitForAll()
+        }
+
+        try await listener.close()
+        try await client.close()
+      }
+    }
+  }
+
+  @Test(arguments: [1, 4])
+  @available(anyAppleOS 27.0, *)
+  func cancellingAPendingWriteResumesWithCancelled(poolSize: Int) async throws {
+    try await PThreadTaskExecutor.withExecutor(name: "TCPSocketTest", poolSize: poolSize) { executor in
+      try await withTaskExecutorPreference(executor) {
+        let listener = try await TCPListener.bind(to: Self.loopback)
+        // This is more than the socket buffers of both peers hold, and the
+        // server never reads, so a write waits for space at some point.
+        let payload = [UInt8](repeating: 0, count: 64 * 1024 * 1024)
+        let (writing, writingContinuation) = AsyncStream.makeStream(of: Void.self)
+
+        try await withThrowingTaskGroup { group in
+          // A noncopyable value cannot be consumed out of a closure capture, so the
+          // connection is moved into the child task through an optional.
+          var clientBox: TCPConnection? = try await TCPConnection.connect(to: listener.localAddress)
+          let server = try await listener.accept()
+          group.addTask {
+            var client = clientBox.take()!
+            writingContinuation.yield()
+            let error = await #expect(throws: IOError.self) {
+              try await client.write(from: payload.span.bytes)
+            }
+            #expect(error?.code == .cancelled)
+            try await client.close()
+          }
+
+          for await _ in writing {
             break
           }
           group.cancelAll()
           try await group.waitForAll()
+          try await server.close()
         }
+
+        try await listener.close()
+      }
+    }
+  }
+
+  @Test
+  @available(anyAppleOS 27.0, *)
+  func escalatingThePriorityOfAPendingAcceptKeepsItPending() async throws {
+    try await PThreadExecutor.withExecutor(name: "TCPSocketTest") { executor in
+      try await withOperationScheduler(executor) {
+        let (addresses, addressesContinuation) = AsyncStream.makeStream(of: SocketAddress.self)
+
+        let acceptingTask = Task(priority: .low) {
+          let listener = try await TCPListener.bind(to: Self.loopback)
+          addressesContinuation.yield(try listener.localAddress)
+
+          // The priority is escalated while the accept waits, which must
+          // neither fail nor complete it.
+          let socket = try await listener.accept()
+          try await socket.close()
+          try await listener.close()
+        }
+
+        var addressIterator = addresses.makeAsyncIterator()
+        let address = try #require(await addressIterator.next())
+        acceptingTask.escalatePriority(to: .high)
+
+        let client = try await TCPConnection.connect(to: address)
+        try await acceptingTask.value
+        try await client.close()
       }
     }
   }
@@ -243,6 +376,20 @@ struct TCPSocketTests {
 
 @available(anyAppleOS 27.0, *)
 extension TCPConnection {
+  /// Reads once, returning at most `count` bytes, or none at the end of the stream.
+  fileprivate mutating func read(count: Int) async throws(IOError) -> [UInt8] {
+    // The buffer has to stay alive while the read is in flight so we heap alloc here.
+    let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: count, alignment: 1)
+    defer {
+      buffer.deallocate()
+    }
+
+    var output = OutputRawSpan(buffer: buffer, initializedCount: 0)
+    let received = try await self.read(into: &output)
+    _ = output.finalize(for: buffer)
+    return Array(UnsafeRawBufferPointer(rebasing: buffer[..<received]))
+  }
+
   /// Reads until the peer closed its side of the connection.
   fileprivate mutating func readUntilEndOfStream() async throws(IOError) -> [UInt8] {
     // The buffer has to stay alive while the read is in flight so we heap alloc here.

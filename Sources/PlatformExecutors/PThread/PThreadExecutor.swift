@@ -25,6 +25,9 @@
 
 #if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin) || os(WASI)
 @_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import _Concurrency
+#if ExperimentalIO
+@_spi(SplitContinuation) import _Concurrency
+#endif
 internal import Synchronization
 
 #if canImport(Darwin)
@@ -825,9 +828,19 @@ extension PThreadExecutor {
     _ operation: IOOperation,
     resumption: (consuming Continuation<Success, IOError>) -> Resumption
   ) async throws(IOError) -> Success {
-    // TODO: Wire through cancellation and priority escalation once we have the split continuation.
-    try await withContinuation(of: Success.self, throwing: IOError.self) { continuation in
-      _ = self.submit(operation, resuming: resumption(continuation))
+    try await withContinuation(
+      of: Success.self,
+      throwing: IOError.self
+    ) { (continuation, awaiter) async throws(IOError) -> Success in
+      guard let id = self.submit(operation, resuming: resumption(continuation)) else {
+        // The operation completed synchronously, so there is nothing
+        // to cancel and no reason to install the handlers.
+        return try await awaiter.wait()
+      }
+      return try await awaiter.wait(
+        onCancel: { self.cancel(id) },
+        onEscalate: { newPriority in self.escalatePriority(of: id, to: newPriority) }
+      )
     }
   }
 

@@ -95,6 +95,48 @@ struct PThreadExecutorTCPSocketTests {
     }
   }
 
+  @Test
+  @available(anyAppleOS 27.0, *)
+  func cancellingAnAcceptResumesWithCancelled() async throws {
+    try await PThreadExecutor.withExecutor(name: "TCPSocketTest") { executor in
+      try await Self.cancelPendingAccept(on: executor)
+    }
+  }
+
+  @Test
+  @available(anyAppleOS 27.0, *)
+  func cancellingAnAcceptOnTheExecutorResumesWithCancelled() async throws {
+    try await PThreadExecutor.withExecutor(name: "TCPSocketTest") { executor in
+      try await withTaskExecutorPreference(executor) {
+        try await Self.cancelPendingAccept(on: executor)
+      }
+    }
+  }
+
+  /// Cancels an accept that waits for a connection that never comes.
+  @available(anyAppleOS 27.0, *)
+  private static func cancelPendingAccept(on executor: PThreadExecutor) async throws {
+    let listener = try await executor.listen(
+      on: .v4(SocketAddress.V4(address: .loopback, port: 0)),
+      backlog: 1
+    )
+
+    try await withThrowingTaskGroup { group in
+      group.addTask {
+        // Nothing connects, so the accept waits until the task is cancelled.
+        let error = await #expect(throws: IOError.self) {
+          let connection = try await executor.accept(listener: listener)
+          try await executor.close(connection: connection)
+        }
+        #expect(error?.code == .cancelled)
+      }
+      group.cancelAll()
+      try await group.waitForAll()
+    }
+
+    try await executor.close(listener: listener)
+  }
+
   /// Echoes a payload through a connection between a client and a server task.
   @available(anyAppleOS 27.0, *)
   private static func echo(on executor: PThreadExecutor) async throws {

@@ -15,6 +15,9 @@
 ///
 /// This is the base protocol that any resource specific scheduler should inherit from. A scheduler is
 /// shared by every resource that it services, so it must be `Sendable`.
+///
+/// A scheduler cancels an operation when the calling task is cancelled, and escalates the priority of an
+/// operation when the priority of the calling task is escalated, if the platform supports it.
 @available(anyAppleOS 27.0, *)
 public protocol OperationScheduler: AnyObject, Sendable {}
 #endif
