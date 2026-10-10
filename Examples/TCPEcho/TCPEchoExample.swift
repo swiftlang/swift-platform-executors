@@ -59,7 +59,7 @@ struct TCPEchoExample {
 
     try await connection.withSplit { readHalf, writeHalf in
       _ = try await withConcurrently {
-        try await Self.printEchoes(from: readHalf)
+        try await Self.printEchoes(from: &readHalf)
       } _: {
         for message in Self.messages {
           try await writeHalf.write(from: Array(message.utf8).span.bytes)
@@ -75,7 +75,7 @@ struct TCPEchoExample {
   }
 
   /// Prints the echoes until the server closed its side of the connection.
-  private static func printEchoes(from readHalf: borrowing TCPConnection.ReadHalf) async throws {
+  private static func printEchoes(from readHalf: inout TCPConnection.ReadHalf) async throws {
     // The buffer has to stay alive while a read is in flight so we heap alloc here.
     let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: 1024, alignment: 1)
     defer {

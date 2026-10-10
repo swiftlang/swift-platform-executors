@@ -18,8 +18,8 @@
 @_semantics("optimize.sil.specialize.generic.never")
 @available(anyAppleOS 27.0, *)
 nonisolated(nonsending) func withConcurrently<First: Sendable, Second: Sendable, Failure: Error>(
-  _ first: @Sendable () async throws(Failure) -> First,
-  _ second: @Sendable () async throws(Failure) -> Second
+  _ first: sending () async throws(Failure) -> First,
+  _ second: sending () async throws(Failure) -> Second
 ) async throws(Failure) -> (First, Second) {
   // The closures only escape into child tasks that finish before we return,
   // so they do not actually escape.
@@ -34,11 +34,13 @@ nonisolated(nonsending) func withConcurrently<First: Sendable, Second: Sendable,
 
 @available(anyAppleOS 27.0, *)
 private nonisolated(nonsending) func _withConcurrently<First: Sendable, Second: Sendable, Failure: Error>(
-  _ first: inout (@Sendable () async throws(Failure) -> First)?,
-  _ second: inout (@Sendable () async throws(Failure) -> Second)?
+  _ first: inout (() async throws(Failure) -> First)?,
+  _ second: inout (() async throws(Failure) -> Second)?
 ) async throws(Failure) -> (First, Second) {
-  let first = first.take()!
-  let second = second.take()!
+  // The closures were passed as `sending`, so the child tasks are the only
+  // code that accesses what they capture.
+  nonisolated(unsafe) let first = first.take()!
+  nonisolated(unsafe) let second = second.take()!
 
   // Task groups do not support typed errors, so the result is carried through a `Result`.
   let result = await withTaskGroup(

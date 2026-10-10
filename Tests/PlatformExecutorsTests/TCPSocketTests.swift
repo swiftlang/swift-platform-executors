@@ -438,7 +438,7 @@ extension TCPConnection {
 @available(anyAppleOS 27.0, *)
 extension TCPConnection.ReadHalf {
   /// Reads until the peer closed its side of the connection.
-  fileprivate func readUntilEndOfStream() async throws(IOError) -> [UInt8] {
+  fileprivate mutating func readUntilEndOfStream() async throws(IOError) -> [UInt8] {
     // The buffer has to stay alive while the read is in flight so we heap alloc here.
     let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: 64 * 1024, alignment: 1)
     defer {

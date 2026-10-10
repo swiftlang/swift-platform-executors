@@ -204,7 +204,7 @@ extension TCPConnection {
     /// - Returns: The number of bytes read. Zero indicates that the peer closed its side of the connection, or
     ///   that the buffer has no free capacity.
     @discardableResult
-    public func read(into buffer: inout OutputRawSpan) async throws(IOError) -> Int {
+    public mutating func read(into buffer: inout OutputRawSpan) async throws(IOError) -> Int {
       try await TCPConnection.read(into: &buffer, connection: self.connection, on: self.scheduler)
     }
   }
@@ -228,7 +228,7 @@ extension TCPConnection {
     /// This can take several writes if the platform accepts only part of the bytes at a time.
     ///
     /// - Parameter buffer: The buffer to write.
-    public func write(from buffer: RawSpan) async throws(IOError) {
+    public mutating func write(from buffer: RawSpan) async throws(IOError) {
       try await TCPConnection.write(from: buffer, connection: self.connection, on: self.scheduler)
     }
 
@@ -236,19 +236,20 @@ extension TCPConnection {
     ///
     /// This sends a `FIN` to the peer, which observes it as the end of the stream once it has received all
     /// data that is still in flight.
-    public func shutdown() async throws(IOError) {
+    public mutating func shutdown() async throws(IOError) {
       try await TCPConnection.shutdown(.write, connection: self.connection, on: self.scheduler)
     }
   }
 
   /// Lends the read and the write direction of the connection to the given closure.
   ///
-  /// The halves can be used concurrently allowing protocols to sends and receives independently.
+  /// The halves can be used concurrently allowing protocols to sends and receives independently. Their
+  /// methods are `mutating`, so that every half is only used by one task at a time.
   ///
   /// ```swift
   /// let reply = try await connection.withSplit { readHalf, writeHalf in
   ///   let (reply, _) = try await withConcurrently {
-  ///     try await readReply(from: readHalf)
+  ///     try await readReply(from: &readHalf)
   ///   } _: {
   ///     try await writeHalf.write(from: request.bytes)
   ///     try await writeHalf.shutdown()
@@ -263,11 +264,11 @@ extension TCPConnection {
   /// - Parameter body: The closure that the halves are lent to.
   /// - Returns: The value that the closure returned.
   public nonisolated(nonsending) func withSplit<Return, Failure: Error>(
-    _ body: nonisolated(nonsending) (borrowing ReadHalf, borrowing WriteHalf) async throws(Failure) -> Return
+    _ body: nonisolated(nonsending) (inout ReadHalf, inout WriteHalf) async throws(Failure) -> Return
   ) async throws(Failure) -> Return {
-    let readHalf = ReadHalf(self)
-    let writeHalf = WriteHalf(self)
-    return try await body(readHalf, writeHalf)
+    var readHalf = ReadHalf(self)
+    var writeHalf = WriteHalf(self)
+    return try await body(&readHalf, &writeHalf)
   }
 }
 #endif
