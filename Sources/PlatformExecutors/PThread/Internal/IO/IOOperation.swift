@@ -70,6 +70,12 @@ enum IOOperation {
 /// keep the memory alive until the operation completed, which ensures that this is actually safe.
 extension IOOperation: @unchecked Sendable {}
 
+extension IOOperation {
+  /// The number of in-flight operations and events per wait that we initially reserve
+  /// to reduce ramp up allocations.
+  static var reservedCapacity: Int { 1024 }
+}
+
 /// The identity of one submitted operation.
 struct IOOperationID: Hashable, Sendable {
   /// The underlying value of this identity.
