@@ -66,55 +66,9 @@ enum IOOperation {
 }
 #endif
 
-/// This is unchecked since we deal with raw pointers. The higher-level contracts of the operation
-/// scheduler enusres that this is actually safe.
+/// This is unchecked since we deal with raw pointers. The operations are performed by `async` methods that
+/// keep the memory alive until the operation completed, which ensures that this is actually safe.
 extension IOOperation: @unchecked Sendable {}
-
-#if !os(WASI)
-/// An I/O request.
-///
-/// This is the safe counterpart of ``IOOperation``. We then lower the individual values to pointers
-/// that are pinned to by the operation state to ensure they stay valid for the entire duration.
-@available(anyAppleOS 26.0, *)
-enum IORequest {
-  /// Connects a socket to the given address.
-  case connect(socket: CInt, to: SocketAddress)
-
-  /// Accepts the next connection of a listening socket.
-  case accept(socket: CInt)
-
-  /// Reads from a socket into the given buffer.
-  ///
-  /// The buffer is the caller's, so it has to stay valid until the operation completed, which is the contract
-  /// of ``TCPSocketOperationScheduler/submitRead(_:state:connection:into:)``.
-  case read(socket: CInt, buffer: UnsafeMutableRawBufferPointer)
-
-  /// Writes the given buffer to a socket.
-  ///
-  /// The buffer is the caller's, so it has to stay valid until the operation completed, which is the contract
-  /// of ``TCPSocketOperationScheduler/submitWrite(_:state:connection:from:)``.
-  case write(socket: CInt, buffer: UnsafeRawBufferPointer)
-
-  /// Shuts down the given directions of a socket.
-  case shutdown(socket: CInt, direction: SocketShutdownDirection)
-
-  /// Closes a socket.
-  case close(socket: CInt)
-}
-
-@available(anyAppleOS 26.0, *)
-extension IORequest {
-  /// The address that the operation needs to outlive its submission, if it has one.
-  var address: SocketAddress? {
-    switch self {
-    case .connect(_, let address):
-      return address
-    case .accept, .read, .write, .shutdown, .close:
-      return nil
-    }
-  }
-}
-#endif
 
 /// The identity of one submitted operation.
 struct IOOperationID: Hashable, Sendable {

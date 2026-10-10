@@ -121,6 +121,9 @@ where [.executable, .test, .regular].contains(
   // Lifetime dependencies of non-escapable types such as the halves of a split TCP connection.
   settings.append(.enableExperimentalFeature("Lifetimes"))
 
+  // `Builtin.stackAlloc` for temporary allocations that outlive the suspension points of an `async` function.
+  settings.append(.enableExperimentalFeature("BuiltinModule"))
+
   //  // https://github.com/swiftlang/swift-evolution/blob/main/proposals/0480-swiftpm-warning-control.md
   //  settings.append(.treatAllWarnings(as: .error))
 

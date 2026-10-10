@@ -95,26 +95,6 @@ struct PThreadExecutorTCPSocketTests {
     }
   }
 
-  @Test
-  @available(anyAppleOS 27.0, *)
-  func cancellingAnAcceptResumesWithCancelled() async throws {
-    try await PThreadExecutor.withExecutor(name: "TCPSocketTest") { executor in
-      let listener = try await executor.listen(
-        on: .v4(SocketAddress.V4(address: .loopback, port: 0)),
-        backlog: 1
-      )
-
-      // Nothing connects, so the accept has to wait for the listener to become readable.
-      let error = await #expect(throws: IOError.self) {
-        let connection = try await executor.acceptCancellingAfterSubmission(listener: listener)
-        try await executor.close(connection: connection)
-      }
-      #expect(error?.code == .cancelled)
-
-      try await executor.close(listener: listener)
-    }
-  }
-
   /// Echoes a payload through a connection between a client and a server task.
   @available(anyAppleOS 27.0, *)
   private static func echo(on executor: PThreadExecutor) async throws {
@@ -166,104 +146,22 @@ struct PThreadExecutorTCPSocketTests {
   }
 }
 
-// MARK: - Awaiting the operations
-
-/// Awaits one operation of the executor.
-@available(anyAppleOS 27.0, *)
-private func withOperation<Success: ~Copyable>(
-  of: Success.Type = Success.self,
-  _ submit: (consuming Continuation<Success, IOError>, inout OutputSpan<PThreadExecutor.OperationState>) ->
-    OperationRegistration
-) async throws(IOError) -> Success {
-  let buffer = UnsafeMutableBufferPointer<PThreadExecutor.OperationState>.allocate(capacity: 1)
-  defer {
-    buffer.deallocate()
-  }
-
-  return try await withContinuation(of: Success.self, throwing: IOError.self) { continuation in
-    var state = OutputSpan(buffer: buffer, initializedCount: 0)
-    _ = submit(continuation, &state)
-    // The state must not be destroyed here since the operation might still be in flight.
-    _ = state.finalize(for: buffer)
-  }
-}
-
-/// Awaits one operation of the executor and cancels it right after it was submitted.
-@available(anyAppleOS 27.0, *)
-private func withCancelledOperation<Success: ~Copyable>(
-  of: Success.Type = Success.self,
-  _ submit: (consuming Continuation<Success, IOError>, inout OutputSpan<PThreadExecutor.OperationState>) ->
-    OperationRegistration,
-  cancel: (OperationRegistration) -> Void
-) async throws(IOError) -> Success {
-  let buffer = UnsafeMutableBufferPointer<PThreadExecutor.OperationState>.allocate(capacity: 1)
-  defer {
-    buffer.deallocate()
-  }
-
-  return try await withContinuation(of: Success.self, throwing: IOError.self) { continuation in
-    var state = OutputSpan(buffer: buffer, initializedCount: 0)
-    let registration = submit(continuation, &state)
-    // The state must not be destroyed here since the operation might still be in flight.
-    _ = state.finalize(for: buffer)
-    cancel(registration)
-  }
-}
-
 @available(anyAppleOS 27.0, *)
 extension PThreadExecutor {
-  fileprivate func listen(
-    on address: SocketAddress,
-    backlog: Int
-  ) async throws(IOError) -> TCPListener {
-    try await withOperation { continuation, state in
-      self.submitListen(continuation, state: &state, on: address, backlog: backlog)
-    }
-  }
-
-  fileprivate func connect(to address: SocketAddress) async throws(IOError) -> TCPConnection {
-    try await withOperation { continuation, state in
-      self.submitConnect(continuation, state: &state, to: address)
-    }
-  }
-
-  fileprivate func accept(listener: TCPListener) async throws(IOError) -> TCPConnection {
-    try await withOperation { continuation, state in
-      self.submitAccept(continuation, state: &state, listener: listener)
-    }
-  }
-
-  fileprivate func acceptCancellingAfterSubmission(
-    listener: TCPListener
-  ) async throws(IOError) -> TCPConnection {
-    try await withCancelledOperation(
-      { continuation, state in
-        self.submitAccept(continuation, state: &state, listener: listener)
-      },
-      cancel: { registration in
-        self.cancel(registration)
-      }
-    )
-  }
-
   /// Reads once, returning at most `count` bytes, or none at the end of the stream.
   fileprivate func read(
     from connection: TCPConnection,
     count: Int
   ) async throws(IOError) -> [UInt8] {
-    // The buffer has to stay alive so we heap alloc here.
-    // TODO: This can be done safely with async entrypoints
     let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: count, alignment: 1)
     defer {
       buffer.deallocate()
     }
 
     var output = OutputRawSpan(buffer: buffer, initializedCount: 0)
-    let received = try await withOperation { continuation, state in
-      self.submitRead(continuation, state: &state, connection: connection, into: &output)
-    }
-
-    _ = output.finalize(for: buffer)
+    let received = try await self.read(connection: connection, into: &output)
+    let initializedCount = output.finalize(for: buffer)
+    #expect(initializedCount == received)
     return Array(UnsafeRawBufferPointer(rebasing: buffer[..<received]))
   }
 
@@ -279,60 +177,12 @@ extension PThreadExecutor {
     }
   }
 
-  /// Writes once, returning the number of bytes written, which can be less than `bytes.count`.
-  fileprivate func write(
-    _ bytes: ArraySlice<UInt8>,
-    to connection: TCPConnection
-  ) async throws(IOError) -> Int {
-    // The buffer has to stay alive so we heap alloc here.
-    // TODO: This can be done safely with async entrypoints
-    let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: bytes.count, alignment: 1)
-    defer {
-      buffer.deallocate()
-    }
-    bytes.withUnsafeBytes { buffer.copyMemory(from: $0) }
-
-    return try await withOperation { continuation, state in
-      self.submitWrite(
-        continuation,
-        state: &state,
-        connection: connection,
-        from: RawSpan(_unsafeBytes: UnsafeRawBufferPointer(buffer))
-      )
-    }
-  }
-
   /// Writes all of the given bytes, which can take several writes.
   fileprivate func write(all bytes: [UInt8], to connection: TCPConnection) async throws(IOError) {
     var remaining = bytes[...]
     while !remaining.isEmpty {
-      let written = try await self.write(remaining, to: connection)
+      let written = try await self.write(connection: connection, from: remaining.span.bytes)
       remaining = remaining.dropFirst(written)
-    }
-  }
-
-  fileprivate func shutdown(
-    connection: TCPConnection,
-    direction: SocketShutdownDirection
-  ) async throws(IOError) {
-    try await withOperation(of: Void.self) { continuation, state in
-      self.submitShutdown(continuation, state: &state, connection: connection, direction: direction)
-    }
-  }
-
-  fileprivate func close(connection: consuming TCPConnection) async throws(IOError) {
-    // TODO: Adopt call-once closures once we have them
-    var pending: TCPConnection? = consume connection
-    try await withOperation(of: Void.self) { continuation, state in
-      self.submitClose(continuation, state: &state, connection: pending.take()!)
-    }
-  }
-
-  fileprivate func close(listener: consuming TCPListener) async throws(IOError) {
-    // TODO: Adopt call-once closures once we have them
-    var pending: TCPListener? = consume listener
-    try await withOperation(of: Void.self) { continuation, state in
-      self.submitClose(continuation, state: &state, listener: pending.take()!)
     }
   }
 }

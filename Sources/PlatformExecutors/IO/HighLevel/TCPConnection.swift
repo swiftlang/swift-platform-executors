@@ -63,11 +63,7 @@ public struct TCPConnection: ~Copyable, Sendable {
     to address: SocketAddress,
     on scheduler: Scheduler
   ) async throws(IOError) -> TCPConnection {
-    let connection = try await withOperation(on: scheduler) {
-      continuation,
-      state in
-      scheduler.submitConnect(continuation, state: &state, to: address)
-    }
+    let connection = try await scheduler.connect(to: address)
     return TCPConnection(scheduler: scheduler, connection: connection)
   }
 
@@ -102,22 +98,7 @@ public struct TCPConnection: ~Copyable, Sendable {
     connection: (any Sendable)?,
     on scheduler: Scheduler
   ) async throws(IOError) -> Int {
-    let connection = Self.connection(connection, of: scheduler)
-    let count = try await withOperation(on: scheduler, of: Int.self) { continuation, state in
-      scheduler.submitRead(
-        continuation,
-        state: &state,
-        connection: connection,
-        into: &buffer
-      )
-    }
-
-    // The scheduler wrote into the free capacity of the buffer we have
-    // to update the initialized count now.
-    unsafe buffer.withUnsafeMutableBytes { _, initializedCount in
-      initializedCount += count
-    }
-    return count
+    try await scheduler.read(connection: Self.connection(connection, of: scheduler), into: &buffer)
   }
 
   /// Writes all bytes of the given buffer to the socket.
@@ -137,17 +118,7 @@ public struct TCPConnection: ~Copyable, Sendable {
     let connection = Self.connection(connection, of: scheduler)
     var remaining = buffer
     while !remaining.isEmpty {
-      let count = try await withOperation(
-        on: scheduler,
-        of: Int.self
-      ) { continuation, state in
-        scheduler.submitWrite(
-          continuation,
-          state: &state,
-          connection: connection,
-          from: remaining
-        )
-      }
+      let count = try await scheduler.write(connection: connection, from: remaining)
       remaining = remaining.extracting(droppingFirst: count)
     }
   }
@@ -167,10 +138,7 @@ public struct TCPConnection: ~Copyable, Sendable {
     connection: (any Sendable)?,
     on scheduler: Scheduler
   ) async throws(IOError) {
-    let connection = Self.connection(connection, of: scheduler)
-    try await withOperation(on: scheduler, of: Void.self) { continuation, state in
-      scheduler.submitShutdown(continuation, state: &state, connection: connection, direction: direction)
-    }
+    try await scheduler.shutdown(connection: Self.connection(connection, of: scheduler), direction: direction)
   }
 
   /// Closes the socket.
@@ -184,9 +152,7 @@ public struct TCPConnection: ~Copyable, Sendable {
   ) async throws(IOError) {
     let connection = connection as! Scheduler.TCPConnection
     try await withTaskCancellationShield { () async throws(IOError) -> Void in
-      try await withOperation(on: scheduler, of: Void.self) { continuation, state in
-        scheduler.submitClose(continuation, state: &state, connection: connection)
-      }
+      try await scheduler.close(connection: connection)
     }
   }
 

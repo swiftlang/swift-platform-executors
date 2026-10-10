@@ -68,11 +68,7 @@ public struct TCPListener: ~Copyable, Sendable {
     backlog: Int,
     on scheduler: Scheduler
   ) async throws(IOError) -> TCPListener {
-    let listener = try await withOperation(on: scheduler, of: Scheduler.TCPListener.self) {
-      continuation,
-      state in
-      scheduler.submitListen(continuation, state: &state, on: address, backlog: backlog)
-    }
+    let listener = try await scheduler.listen(on: address, backlog: backlog)
     return TCPListener(scheduler: scheduler, listener: listener)
   }
 
@@ -99,12 +95,7 @@ public struct TCPListener: ~Copyable, Sendable {
   private func accept<Scheduler: TCPSocketOperationScheduler>(
     on scheduler: Scheduler
   ) async throws(IOError) -> TCPConnection {
-    let listener = self.listener(of: scheduler)
-    let connection = try await withOperation(on: scheduler) {
-      continuation,
-      state in
-      scheduler.submitAccept(continuation, state: &state, listener: listener)
-    }
+    let connection = try await scheduler.accept(listener: self.listener(of: scheduler))
     return TCPConnection(scheduler: scheduler, connection: connection)
   }
 
@@ -119,9 +110,7 @@ public struct TCPListener: ~Copyable, Sendable {
   ) async throws(IOError) {
     let listener = listener as! Scheduler.TCPListener
     try await withTaskCancellationShield { () async throws(IOError) -> Void in
-      try await withOperation(on: scheduler, of: Void.self) { continuation, state in
-        scheduler.submitClose(continuation, state: &state, listener: listener)
-      }
+      try await scheduler.close(listener: listener)
     }
   }
 

@@ -32,91 +32,48 @@ public protocol TCPSocketOperationScheduler<TCPListener, TCPConnection>: Operati
   /// The handle identifying a connected TCP socket of this scheduler.
   associatedtype TCPConnection: Sendable
 
-  /// Submits an operation that creates a new socket and connects it to the given address.
+  /// Creates a new socket and connects it to the given address.
   ///
-  /// - Parameters:
-  ///   - continuation: The continuation resumed with the connected socket.
-  ///   - state: The per-operation state of the scheduler.
-  ///   - address: The address to connect to.
-  /// - Returns: The registration of the operation.
-  func submitConnect(
-    _ continuation: consuming Continuation<TCPConnection, IOError>,
-    state: inout OutputSpan<OperationState>,
-    to address: SocketAddress
-  ) -> OperationRegistration
+  /// - Parameter address: The address to connect to.
+  /// - Returns: The connected socket.
+  func connect(to address: SocketAddress) async throws(IOError) -> TCPConnection
 
-  /// Submits an operation that creates a new socket, binds it to the given
-  /// address and starts listening for incoming connections.
+  /// Creates a new socket, binds it to the given address and starts listening for incoming connections.
   ///
   /// - Parameters:
-  ///   - continuation: The continuation resumed with the listening socket.
-  ///   - state: The per-operation state of the scheduler.
   ///   - address: The address to bind the socket to.
   ///   - backlog: The maximum number of connections the platform queues up
   ///     before refusing new ones.
-  /// - Returns: The registration of the operation.
-  func submitListen(
-    _ continuation: consuming Continuation<TCPListener, IOError>,
-    state: inout OutputSpan<OperationState>,
-    on address: SocketAddress,
-    backlog: Int
-  ) -> OperationRegistration
+  /// - Returns: The listening socket.
+  func listen(on address: SocketAddress, backlog: Int) async throws(IOError) -> TCPListener
 
-  /// Submits an operation that accepts the next incoming connection of a
-  /// listening socket.
+  /// Accepts the next incoming connection of a listening socket.
+  ///
+  /// - Parameter listener: The listening socket to accept a connection from.
+  /// - Returns: The accepted socket.
+  func accept(listener: borrowing TCPListener) async throws(IOError) -> TCPConnection
+
+  /// Reads once from a socket into the free capacity of the given buffer.
+  ///
+  /// The bytes are appended to the buffer. A read can return fewer bytes than the free capacity of the
+  /// buffer.
   ///
   /// - Parameters:
-  ///   - continuation: The continuation resumed with the accepted socket.
-  ///   - state: The per-operation state of the scheduler.
-  ///   - listener: The listening socket to accept a connection from.
-  /// - Returns: The registration of the operation.
-  func submitAccept(
-    _ continuation: consuming Continuation<TCPConnection, IOError>,
-    state: inout OutputSpan<OperationState>,
-    listener: borrowing TCPListener
-  ) -> OperationRegistration
-
-  /// Submits an operation that reads from a socket into the given buffer.
-  ///
-  /// - Important: The buffer must stay alive until the operation has completed
-  ///   or has been cancelled since the kernel might be writing into it while
-  ///   the caller is suspended.
-  ///
-  /// - Parameters:
-  ///   - continuation: The continuation resumed with the number of bytes read.
-  ///     Zero indicates that the peer closed its side of the connection.
-  ///   - state: The per-operation state of the scheduler.
-  ///   - socket: The socket to read from.
+  ///   - connection: The socket to read from.
   ///   - buffer: The buffer to read into.
-  /// - Returns: The registration of the operation.
-  func submitRead(
-    _ continuation: consuming Continuation<Int, IOError>,
-    state: inout OutputSpan<OperationState>,
-    connection: borrowing TCPConnection,
-    into buffer: inout OutputRawSpan
-  ) -> OperationRegistration
+  /// - Returns: The number of bytes read. Zero indicates that the peer closed its side of the connection, or
+  ///   that the buffer has no free capacity.
+  func read(connection: borrowing TCPConnection, into buffer: inout OutputRawSpan) async throws(IOError) -> Int
 
-  /// Submits an operation that writes the given buffer to a socket.
-  ///
-  /// - Important: The buffer must stay alive until the operation has completed
-  ///   or has been cancelled since the kernel might be reading from it while
-  ///   the caller is suspended.
+  /// Writes the given buffer to a socket.
   ///
   /// - Parameters:
-  ///   - continuation: The continuation resumed with the number of bytes
-  ///     written. This can be less than the number of bytes in the buffer.
-  ///   - state: The per-operation state of the scheduler.
-  ///   - socket: The socket to write to.
+  ///   - connection: The socket to write to.
   ///   - buffer: The buffer to write from.
-  /// - Returns: The registration of the operation.
-  func submitWrite(
-    _ continuation: consuming Continuation<Int, IOError>,
-    state: inout OutputSpan<OperationState>,
-    connection: borrowing TCPConnection,
-    from buffer: RawSpan
-  ) -> OperationRegistration
+  /// - Returns: The number of bytes written. This can be less than the number of bytes in the buffer.
+  func write(connection: borrowing TCPConnection, from buffer: RawSpan) async throws(IOError) -> Int
 
-  /// Submits an operation that shuts down one or both directions of a socket.
+  /// Shuts down one or both directions of a socket.
   ///
   /// Shutting down the write direction sends a `FIN` to the peer, which
   /// observes it as the end of the stream once it has received all data that is
@@ -125,43 +82,19 @@ public protocol TCPSocketOperationScheduler<TCPListener, TCPConnection>: Operati
   /// peer is still sending.
   ///
   /// - Parameters:
-  ///   - continuation: The continuation resumed once the socket is shut down.
-  ///   - state: The per-operation state of the scheduler.
-  ///   - socket: The socket to shut down.
+  ///   - connection: The socket to shut down.
   ///   - direction: The direction to shut down.
-  /// - Returns: The registration of the operation.
-  func submitShutdown(
-    _ continuation: consuming Continuation<Void, IOError>,
-    state: inout OutputSpan<OperationState>,
-    connection: borrowing TCPConnection,
-    direction: SocketShutdownDirection
-  ) -> OperationRegistration
+  func shutdown(connection: borrowing TCPConnection, direction: SocketShutdownDirection) async throws(IOError)
 
-  /// Submits an operation that closes a socket.
+  /// Closes a socket.
   ///
-  /// - Parameters:
-  ///   - continuation: The continuation resumed once the socket is closed.
-  ///   - state: The per-operation state of the scheduler.
-  ///   - socket: The socket to close.
-  /// - Returns: The registration of the operation.
-  func submitClose(
-    _ continuation: consuming Continuation<Void, IOError>,
-    state: inout OutputSpan<OperationState>,
-    connection: consuming TCPConnection
-  ) -> OperationRegistration
+  /// - Parameter connection: The socket to close.
+  func close(connection: consuming TCPConnection) async throws(IOError)
 
-  /// Submits an operation that closes a listening socket.
+  /// Closes a listening socket.
   ///
-  /// - Parameters:
-  ///   - continuation: The continuation resumed once the listening socket is closed.
-  ///   - state: The per-operation state of the scheduler.
-  ///   - listener: The listening socket to close.
-  /// - Returns: The registration of the operation.
-  func submitClose(
-    _ continuation: consuming Continuation<Void, IOError>,
-    state: inout OutputSpan<OperationState>,
-    listener: consuming TCPListener
-  ) -> OperationRegistration
+  /// - Parameter listener: The listening socket to close.
+  func close(listener: consuming TCPListener) async throws(IOError)
 
   /// Returns the address that a connected socket is bound to locally.
   ///

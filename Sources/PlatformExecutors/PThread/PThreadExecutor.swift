@@ -197,8 +197,6 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
 
   #if ExperimentalIO && !os(WASI)
   /// The identity of the next submitted operation.
-  ///
-  /// This starts at one since zero is the identity of ``completedRegistration``.
   private let _nextOperationID = Atomic<UInt>(1)
   #endif
 
@@ -755,14 +753,6 @@ internal enum SubmittedIOCommand: ~Copyable, Sendable {
   case cancel(IOOperationID)
 }
 
-// MARK: - Per-operation state
-
-@available(anyAppleOS 27.0, *)
-extension PThreadExecutor {
-  /// The state that a ``PThreadExecutor`` needs per in-flight operation.
-  package typealias OperationState = PThreadOperationState
-}
-
 @available(anyAppleOS 27.0, *)
 extension PThreadExecutor {
   /// What an in-flight operation resumes when its result arrives.
@@ -817,42 +807,44 @@ extension PThreadExecutor {
       }
     }
   }
-
-  /// The registration of an operation that completed synchronously.
-  internal static var completedRegistration: OperationRegistration {
-    OperationRegistration(id: 0)
-  }
 }
 
 // MARK: - Submitting
 
 @available(anyAppleOS 27.0, *)
 extension PThreadExecutor {
+  /// Performs the operation and awaits its result.
+  ///
+  /// - Important: Every pointer in the operation has to stay valid until this method returns.
+  ///
+  /// - Parameters:
+  ///   - operation: The operation to perform.
+  ///   - resumption: Returns what to resume with the given continuation once the operation completes.
+  /// - Returns: The result of the operation.
+  internal nonisolated(nonsending) func perform<Success: ~Copyable>(
+    _ operation: IOOperation,
+    resumption: (consuming Continuation<Success, IOError>) -> Resumption
+  ) async throws(IOError) -> Success {
+    // TODO: Wire through cancellation and priority escalation once we have the split continuation.
+    try await withContinuation(of: Success.self, throwing: IOError.self) { continuation in
+      _ = self.submit(operation, resuming: resumption(continuation))
+    }
+  }
+
   /// Submits the operation and holds on to what to resume once it completes.
   ///
   /// - Parameters:
+  ///   - operation: The operation to perform.
   ///   - resumption: What to resume once the operation completes.
-  ///   - request: The operation to perform.
-  ///   - state: The state that the submitter allocated.
-  /// - Returns: The registration of the operation.
+  /// - Returns: The identity of the operation, or `nil` if it completed synchronously.
   internal func submit(
-    _ resumption: consuming Resumption,
-    request: IORequest,
-    state: inout OutputSpan<OperationState>
-  ) -> OperationRegistration {
-    precondition(
-      !state.isFull,
-      "The operation state of a PThreadExecutor needs capacity for one element"
-    )
-    // Everything the kernel reads is copied into the state to guarntee stable addresses.
-    state.append(OperationState(address: request.address))
-
-    let operation = Self.pin(request, in: &state)
-
+    _ operation: IOOperation,
+    resuming resumption: consuming Resumption
+  ) -> IOOperationID? {
     // We first try to attempt the operation if it can be done synchronously.
     if let result = Backend.attempt(operation) {
       resumption.resume(with: result)
-      return Self.completedRegistration
+      return nil
     }
 
     let id = IOOperationID(
@@ -874,44 +866,7 @@ extension PThreadExecutor {
       self.enqueue(.submit(operation, id, resumption))
     }
 
-    return OperationRegistration(id: id.rawValue)
-  }
-
-  /// Pins everything that is needed in the request to the state to ensure we have a stable address.
-  ///
-  /// - Important: This has to pin every pointer that is passed to the kernel so it stays stable for
-  /// the entire duration of the operation.
-  ///
-  /// - Parameters:
-  ///   - request: The request to lower.
-  ///   - state: The state that the submitter allocated.
-  /// - Returns: The operation to submit.
-  private static func pin(
-    _ request: IORequest,
-    in state: inout OutputSpan<OperationState>
-  ) -> IOOperation {
-    var states = state.mutableSpan
-    return states.withUnsafeMutableBufferPointer { buffer in
-      let statePointer = buffer.baseAddress! + (buffer.count - 1)
-      switch request {
-      case .connect(let socket, _):
-        return .connect(
-          socket: socket,
-          address: UnsafePointer(statePointer.pointee.addressPointer),
-          addressLength: statePointer.pointee.addressLength
-        )
-      case .accept(let socket):
-        return .accept(socket: socket)
-      case .read(let socket, let buffer):
-        return .read(socket: socket, buffer: buffer)
-      case .write(let socket, let buffer):
-        return .write(socket: socket, buffer: buffer)
-      case .shutdown(let socket, let direction):
-        return .shutdown(socket: socket, direction: direction)
-      case .close(let socket):
-        return .close(socket: socket)
-      }
-    }
+    return id
   }
 
   /// Hands the work to the executor's thread.
@@ -922,15 +877,10 @@ extension PThreadExecutor {
     }
   }
 
-  package func cancel(_ registration: OperationRegistration) {
-    guard registration.id != 0 else {
-      // The operation completed before it was submitted
-      // so there is nothing to cancel.
-      return
-    }
-
-    let id = IOOperationID(rawValue: registration.id)
-
+  /// Cancels the operation with the given identity.
+  ///
+  /// - Parameter id: The identity of the operation.
+  internal func cancel(_ id: IOOperationID) {
     // If we are on the executor and the operation reached the backend we can
     // cancel right away. Otherwise we have to enqueue it and let the next tick pick it up.
     if self.onExecutor && self.inFlightIOOperations.containsKey(id) {
@@ -940,8 +890,13 @@ extension PThreadExecutor {
     }
   }
 
-  package func escalatePriority(
-    of registration: OperationRegistration,
+  /// Escalates the priority of the operation with the given identity.
+  ///
+  /// - Parameters:
+  ///   - id: The identity of the operation.
+  ///   - newPriority: The new priority to set.
+  internal func escalatePriority(
+    of id: IOOperationID,
     to newPriority: TaskPriority
   ) {
     // Neither a readiness based nor a completion based mechanism
@@ -979,21 +934,6 @@ extension PThreadExecutor {
   }
 }
 
-// MARK: - Addresses in the operation state
-
-@available(anyAppleOS 27.0, *)
-extension PThreadExecutor.OperationState {
-  /// A pointer to the address storage of this state.
-  ///
-  /// - Important: This is only safe if the memory address is actually pinned.
-  fileprivate var addressPointer: UnsafeMutablePointer<sockaddr> {
-    mutating get {
-      withUnsafeMutablePointer(to: &self.address) {
-        UnsafeMutableRawPointer($0).assumingMemoryBound(to: sockaddr.self)
-      }
-    }
-  }
-}
 #endif
 
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)

@@ -37,138 +37,99 @@ extension PThreadExecutor {
 
 @available(anyAppleOS 27.0, *)
 extension PThreadExecutor: TCPSocketOperationScheduler {
-  package func submitConnect(
-    _ continuation: consuming Continuation<TCPConnection, IOError>,
-    state: inout OutputSpan<OperationState>,
-    to address: SocketAddress
-  ) -> OperationRegistration {
-    let socket: CInt
-    do {
-      socket = try StreamSocketSyscall.makeSocket(family: address.family)
-    } catch {
-      continuation.resume(throwing: error)
-      return Self.completedRegistration
-    }
+  package func connect(to address: SocketAddress) async throws(IOError) -> TCPConnection {
+    let socket = try StreamSocketSyscall.makeSocket(family: address.family)
 
-    return self.submit(
-      .connection(continuation, socket: socket, executorIndex: self.poolIndex),
-      request: .connect(socket: socket, to: address),
-      state: &state
-    )
+    // The kernel reads the address while we are suspended, so it lives in
+    // storage that outlives the operation.
+    return try await withTemporaryAllocation(of: sockaddr_storage.self, capacity: 1) {
+      storage async throws(IOError) -> TCPConnection in
+      storage.append(sockaddr_storage())
+      var addresses = storage.mutableSpan
+      let operation = addresses.withUnsafeMutableBufferPointer { buffer in
+        let addressLength = address.write(into: &buffer[0])
+        return IOOperation.connect(
+          socket: socket,
+          address: UnsafeRawPointer(buffer.baseAddress!).assumingMemoryBound(to: sockaddr.self),
+          addressLength: addressLength
+        )
+      }
+      return try await self.perform(operation) { continuation in
+        .connection(continuation, socket: socket, executorIndex: self.poolIndex)
+      }
+    }
   }
 
-  package func submitListen(
-    _ continuation: consuming Continuation<TCPListener, IOError>,
-    state: inout OutputSpan<OperationState>,
-    on address: SocketAddress,
-    backlog: Int
-  ) -> OperationRegistration {
-    let socket: CInt
-    do {
-      socket = try StreamSocketSyscall.makeSocket(family: address.family)
-    } catch {
-      continuation.resume(throwing: error)
-      return Self.completedRegistration
-    }
-
+  package func listen(on address: SocketAddress, backlog: Int) async throws(IOError) -> TCPListener {
+    let socket = try StreamSocketSyscall.makeSocket(family: address.family)
     do {
       try StreamSocketSyscall.setReuseAddress(socket)
       try StreamSocketSyscall.bind(socket, to: address)
       try StreamSocketSyscall.listen(socket, backlog: backlog)
     } catch {
       try? StreamSocketSyscall.close(socket)
-      continuation.resume(throwing: error)
-      return Self.completedRegistration
+      throw error
     }
-
-    continuation.resume(returning: TCPListener(fileDescriptor: socket, executorIndex: self.poolIndex))
-    return Self.completedRegistration
+    return TCPListener(fileDescriptor: socket, executorIndex: self.poolIndex)
   }
 
-  package func submitAccept(
-    _ continuation: consuming Continuation<TCPConnection, IOError>,
-    state: inout OutputSpan<OperationState>,
-    listener: borrowing TCPListener
-  ) -> OperationRegistration {
-    self.submit(
-      .acceptedConnection(continuation, executorIndex: self.poolIndex),
-      request: .accept(socket: listener.fileDescriptor),
-      state: &state
-    )
+  package func accept(listener: borrowing TCPListener) async throws(IOError) -> TCPConnection {
+    try await self.perform(.accept(socket: listener.fileDescriptor)) { continuation in
+      .acceptedConnection(continuation, executorIndex: self.poolIndex)
+    }
   }
 
-  package func submitRead(
-    _ continuation: consuming Continuation<Int, IOError>,
-    state: inout OutputSpan<OperationState>,
+  package func read(
     connection: borrowing TCPConnection,
     into buffer: inout OutputRawSpan
-  ) -> OperationRegistration {
-    // The bytes are read into the free capacity of the buffer. The operation
-    // completes afterwards when we have no access to the output span anymore.
-    // TODO: We should try out async entrypoints for the submit methods.
+  ) async throws(IOError) -> Int {
+    // The bytes are read into the free capacity of the buffer, which stays
+    // alive while we are suspended since we hold the access to it.
     let freeCapacity = buffer.withUnsafeMutableBytes { bytes, initializedCount in
       UnsafeMutableRawBufferPointer(rebasing: bytes[initializedCount...])
     }
 
-    return self.submit(
-      .byteCount(continuation),
-      request: .read(socket: connection.fileDescriptor, buffer: freeCapacity),
-      state: &state
-    )
+    let count = try await self.perform(.read(socket: connection.fileDescriptor, buffer: freeCapacity)) {
+      continuation in
+      .byteCount(continuation)
+    }
+
+    // The kernel wrote into the free capacity of the buffer so we have to
+    // update the initialized count now.
+    buffer.withUnsafeMutableBytes { _, initializedCount in
+      initializedCount += count
+    }
+    return count
   }
 
-  package func submitWrite(
-    _ continuation: consuming Continuation<Int, IOError>,
-    state: inout OutputSpan<OperationState>,
-    connection: borrowing TCPConnection,
-    from buffer: RawSpan
-  ) -> OperationRegistration {
+  package func write(connection: borrowing TCPConnection, from buffer: RawSpan) async throws(IOError) -> Int {
     let bytes = buffer.withUnsafeBytes { $0 }
-
-    return self.submit(
-      .byteCount(continuation),
-      request: .write(socket: connection.fileDescriptor, buffer: bytes),
-      state: &state
-    )
+    return try await self.perform(.write(socket: connection.fileDescriptor, buffer: bytes)) { continuation in
+      .byteCount(continuation)
+    }
   }
 
-  package func submitShutdown(
-    _ continuation: consuming Continuation<Void, IOError>,
-    state: inout OutputSpan<OperationState>,
+  package func shutdown(
     connection: borrowing TCPConnection,
     direction: SocketShutdownDirection
-  ) -> OperationRegistration {
-    self.submit(
-      .void(continuation),
-      request: .shutdown(socket: connection.fileDescriptor, direction: direction),
-      state: &state
-    )
+  ) async throws(IOError) {
+    try await self.perform(.shutdown(socket: connection.fileDescriptor, direction: direction)) { continuation in
+      .void(continuation)
+    }
   }
 
-  package func submitClose(
-    _ continuation: consuming Continuation<Void, IOError>,
-    state: inout OutputSpan<OperationState>,
-    connection: consuming TCPConnection
-  ) -> OperationRegistration {
+  package func close(connection: consuming TCPConnection) async throws(IOError) {
     let fileDescriptor = connection.takeFileDescriptor()
-    return self.submit(
-      .void(continuation),
-      request: .close(socket: fileDescriptor),
-      state: &state
-    )
+    try await self.perform(.close(socket: fileDescriptor)) { continuation in
+      .void(continuation)
+    }
   }
 
-  package func submitClose(
-    _ continuation: consuming Continuation<Void, IOError>,
-    state: inout OutputSpan<OperationState>,
-    listener: consuming TCPListener
-  ) -> OperationRegistration {
+  package func close(listener: consuming TCPListener) async throws(IOError) {
     let fileDescriptor = listener.takeFileDescriptor()
-    return self.submit(
-      .void(continuation),
-      request: .close(socket: fileDescriptor),
-      state: &state
-    )
+    try await self.perform(.close(socket: fileDescriptor)) { continuation in
+      .void(continuation)
+    }
   }
 
   /// Returns the local address of the connection.
