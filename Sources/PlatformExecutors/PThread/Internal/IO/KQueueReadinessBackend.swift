@@ -25,6 +25,9 @@
 
 #if canImport(Darwin)
 import Darwin
+#if ExperimentalIO
+internal import BasicContainers
+#endif
 
 private let sysKevent = kevent
 
@@ -44,7 +47,13 @@ struct KQueueReadinessBackend: ~Copyable {
   ///
   /// kqueue takes a changelist in the same call that waits for events, so changes are accumulated here and
   /// applied by the next wait.
-  private var pendingChanges: [Darwin.kevent] = []
+  private var pendingChanges: UniqueArray<Darwin.kevent> = {
+    var pendingChanges = UniqueArray<Darwin.kevent>()
+    #if ExperimentalIO
+    pendingChanges.reserveCapacity(IOOperation.reservedCapacity)
+    #endif
+    return pendingChanges
+  }()
 
   /// A handle that other threads use to wake this backend up.
   var wakeupHandle: WakeupHandle {
@@ -58,6 +67,11 @@ struct KQueueReadinessBackend: ~Copyable {
   #if ExperimentalIO
   /// The operations that are waiting for their file descriptor to become ready.
   private var operations = ReadinessOperations()
+
+  /// The events buffer.
+  private var events = UniqueArray<Darwin.kevent>(
+    minimumCapacity: IOOperation.reservedCapacity
+  )
   #endif
 
   init() throws {
@@ -157,34 +171,34 @@ struct KQueueReadinessBackend: ~Copyable {
   ///
   /// - Parameters:
   ///   - strategy: The strategy to use for blocking.
-  ///   - events: The buffer that kqueue writes the events into. It has to be empty.
-  private mutating func waitForEvents(
-    strategy: IOWaitStrategy,
+  /// Returns the timeout of `kevent` for the strategy.
+  private mutating func prepareWait(strategy: IOWaitStrategy) -> timespec? {
+    self.appendTimerChanges(strategy: strategy)
+    return Self.toKQueueTimeSpec(strategy: strategy)
+  }
+
+  /// Applies the changelist, waits for events and writes them into the given output span.
+  private static func waitForEvents(
+    kqueueFD: CInt,
+    changelist: UnsafeBufferPointer<Darwin.kevent>,
+    timeout: timespec?,
     into events: inout OutputSpan<Darwin.kevent>
   ) throws {
-    self.appendTimerChanges(strategy: strategy)
-
-    let timespec = Self.toKQueueTimeSpec(strategy: strategy)
-
     try events.withUnsafeMutableBufferPointer { buffer, initializedCount in
       assert(initializedCount == 0, "The events can only be written into an empty buffer")
-      initializedCount = try timespec.withUnsafeOptionalPointer { ts in
-        try self.pendingChanges.withUnsafeBufferPointer { changelist in
-          Int(
-            try Self.kevent(
-              kq: self.kqueueFD,
-              changelist: changelist.baseAddress,
-              nchanges: CInt(changelist.count),
-              eventlist: buffer.baseAddress!,
-              nevents: CInt(buffer.count),
-              timeout: ts
-            )
+      initializedCount = try timeout.withUnsafeOptionalPointer { ts in
+        Int(
+          try Self.kevent(
+            kq: kqueueFD,
+            changelist: changelist.baseAddress,
+            nchanges: CInt(changelist.count),
+            eventlist: buffer.baseAddress!,
+            nevents: CInt(buffer.count),
+            timeout: ts
           )
-        }
+        )
       }
     }
-    // The kernel has taken the changes, so we can clear the array.
-    self.pendingChanges.removeAll(keepingCapacity: true)
   }
 
   /// Processes one event that ``waitForEvents(strategy:into:)`` handed back.
@@ -376,22 +390,33 @@ extension KQueueReadinessBackend: IOBackend {
       strategy = .now
     }
 
-    try withTemporaryAllocation(
-      of: Darwin.kevent.self,
-      capacity: Self.maxEvents
-    ) { events in
-      try self.waitForEvents(strategy: strategy, into: &events)
-
-      for index in events.indices {
-        guard let readiness = self.process(events[index]),
-          let registration = self.operations.handle(readiness)
-        else {
-          // The event was one of our own, stale, or
-          // nothing waits on the file descriptor anymore.
-          continue
-        }
-        self.arm(registration)
+    let timeout = self.prepareWait(strategy: strategy)
+    let kqueueFD = self.kqueueFD
+    self.events.removeAll()
+    try self.pendingChanges.span.withUnsafeBufferPointer { changelist in
+      try self.events.edit { events in
+        try Self.waitForEvents(
+          kqueueFD: kqueueFD,
+          changelist: changelist,
+          timeout: timeout,
+          into: &events
+        )
       }
+    }
+    // The kernel has taken the changes, so we can clear the array.
+    self.pendingChanges.removeAll()
+
+    for index in self.events.indices {
+      // The event is copied out, since processing it mutates the backend.
+      let event = self.events[index]
+      guard let readiness = self.process(event),
+        let registration = self.operations.handle(readiness)
+      else {
+        // The event was one of our own, stale, or
+        // nothing waits on the file descriptor anymore.
+        continue
+      }
+      self.arm(registration)
     }
 
     // The results are handed over last, once everything is armed.
@@ -402,8 +427,14 @@ extension KQueueReadinessBackend: IOBackend {
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
 extension KQueueReadinessBackend: IOBackend {
   mutating func wait(strategy: IOWaitStrategy) throws {
+    let timeout = self.prepareWait(strategy: strategy)
+    let kqueueFD = self.kqueueFD
     try withTemporaryAllocation(of: Darwin.kevent.self, capacity: Self.maxEvents) { events in
-      try self.waitForEvents(strategy: strategy, into: &events)
+      try self.pendingChanges.withUnsafeBufferPointer { changelist in
+        try Self.waitForEvents(kqueueFD: kqueueFD, changelist: changelist, timeout: timeout, into: &events)
+      }
+      // The kernel has taken the changes, so we can clear the array.
+      self.pendingChanges.removeAll()
 
       for index in events.indices {
         _ = self.process(events[index])

@@ -82,13 +82,21 @@ struct ReadinessOperations: ~Copyable {
   }
 
   /// The operations that are waiting, keyed by the file descriptor they are waiting on.
-  private var pendingOperations: [CInt: PendingOperations] = [:]
+  private var pendingOperations = [CInt: PendingOperations](
+    minimumCapacity: IOOperation.reservedCapacity
+  )
 
   /// The file descriptor that an operation is waiting on, so that cancelling only needs its identity.
-  private var fileDescriptors: [IOOperationID: CInt] = [:]
+  private var fileDescriptors = [IOOperationID: CInt](
+    minimumCapacity: IOOperation.reservedCapacity
+  )
 
   /// The results that are ready to be handed over to the executor.
-  private var readyResults: [(IOOperationID, Result<Int, IOError>)] = []
+  private var readyResults: [(IOOperationID, Result<Int, IOError>)] = {
+    var readyResults = [(IOOperationID, Result<Int, IOError>)]()
+    readyResults.reserveCapacity(IOOperation.reservedCapacity)
+    return readyResults
+  }()
 
   /// The identifier of the next registration.
   private var nextRegistrationID: UInt32 = 1

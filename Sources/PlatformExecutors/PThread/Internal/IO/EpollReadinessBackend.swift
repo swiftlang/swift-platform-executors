@@ -26,6 +26,9 @@
 #if canImport(Glibc)
 import Glibc
 import CPlatformExecutors
+#if ExperimentalIO
+internal import BasicContainers
+#endif
 
 /// An I/O mechanism that uses epoll for eventing.
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
@@ -70,6 +73,11 @@ struct EpollReadinessBackend: ~Copyable {
   #if ExperimentalIO
   /// The operations that are waiting for their file descriptor to become ready.
   private var operations = ReadinessOperations()
+
+  /// The events buffer.
+  private var events = UniqueArray<Epoll.epoll_event>(
+    minimumCapacity: IOOperation.reservedCapacity
+  )
   #endif
 
   /// A handle that other threads use to wake this backend up.
@@ -160,12 +168,8 @@ struct EpollReadinessBackend: ~Copyable {
   ///
   /// - Parameters:
   ///   - strategy: The strategy to use for blocking.
-  ///   - events: The buffer that epoll writes the events into. It has to be empty.
-  private mutating func waitForEvents(
-    strategy: IOWaitStrategy,
-    into events: inout OutputSpan<Epoll.epoll_event>
-  ) throws {
-    // First let's work out the timeout.
+  /// Returns the timeout of `epoll_wait` for the strategy, arming the timers that wake the wait up.
+  private mutating func prepareWait(strategy: IOWaitStrategy) throws -> CInt {
     let timeout: CInt
     switch strategy {
     case .now:
@@ -210,12 +214,20 @@ struct EpollReadinessBackend: ~Copyable {
       // Specifying -1 blocks until a file descriptor becomes ready
       timeout = -1
     }
+    return timeout
+  }
 
+  /// Waits for events and writes them into the given output span.
+  private static func waitForEvents(
+    epollFD: CInt,
+    timeout: CInt,
+    into events: inout OutputSpan<Epoll.epoll_event>
+  ) throws {
     try events.withUnsafeMutableBufferPointer { buffer, initializedCount in
       assert(initializedCount == 0, "The events can only be written into an empty buffer")
       initializedCount = Int(
         try Epoll.epoll_wait(
-          epfd: self.epollFD,
+          epfd: epollFD,
           events: buffer.baseAddress!,
           maxevents: CInt(buffer.count),
           timeout: timeout
@@ -318,7 +330,7 @@ struct EpollReadinessBackend: ~Copyable {
         fd: registration.fileDescriptor,
         event: &event
       )
-    } catch let error as SyscallError where error.errnoCode == ENOENT {
+    } catch let error where error.errnoCode == ENOENT {
       do {
         try Epoll.epoll_ctl(
           epfd: self.epollFD,
@@ -335,14 +347,8 @@ struct EpollReadinessBackend: ~Copyable {
   }
 
   /// Fails every operation waiting on a file descriptor that could not be armed.
-  private mutating func failOperations(on fileDescriptor: CInt, with error: any Error) {
-    let ioError: IOError
-    if let syscallError = error as? SyscallError {
-      ioError = IOError(syscallError)
-    } else {
-      ioError = IOError(code: .platform(EIO))
-    }
-    self.operations.failPendingOperations(on: fileDescriptor, with: ioError)
+  private mutating func failOperations(on fileDescriptor: CInt, with error: SyscallError) {
+    self.operations.failPendingOperations(on: fileDescriptor, with: IOError(error))
   }
   #endif
 
@@ -394,17 +400,22 @@ extension EpollReadinessBackend: IOBackend {
       strategy = .now
     }
 
-    try withTemporaryAllocation(of: Epoll.epoll_event.self, capacity: Self.maxEvents) { events in
-      try self.waitForEvents(strategy: strategy, into: &events)
+    let timeout = try self.prepareWait(strategy: strategy)
+    let epollFD = self.epollFD
+    self.events.removeAll()
+    try self.events.edit { events in
+      try Self.waitForEvents(epollFD: epollFD, timeout: timeout, into: &events)
+    }
 
-      for index in events.indices {
-        guard let readiness = try self.process(events[index]),
-          let registration = self.operations.handle(readiness)
-        else {
-          continue
-        }
-        self.arm(registration)
+    for index in self.events.indices {
+      // The event is copied out, since processing it mutates the backend.
+      let event = self.events[index]
+      guard let readiness = try self.process(event),
+        let registration = self.operations.handle(readiness)
+      else {
+        continue
       }
+      self.arm(registration)
     }
 
     // The results are handed over last, once everything is armed.
@@ -415,8 +426,10 @@ extension EpollReadinessBackend: IOBackend {
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 extension EpollReadinessBackend: IOBackend {
   mutating func wait(strategy: IOWaitStrategy) throws {
+    let timeout = try self.prepareWait(strategy: strategy)
+    let epollFD = self.epollFD
     try withTemporaryAllocation(of: Epoll.epoll_event.self, capacity: Self.maxEvents) { events in
-      try self.waitForEvents(strategy: strategy, into: &events)
+      try Self.waitForEvents(epollFD: epollFD, timeout: timeout, into: &events)
 
       // Process the events.
       for index in events.indices {
@@ -463,7 +476,7 @@ internal enum Epoll {
   internal static let ENOENT: CUnsignedInt = numericCast(CPlatformExecutors.ENOENT)
 
   @inline(never)
-  internal static func epoll_create(size: CInt) throws -> CInt {
+  internal static func epoll_create(size: CInt) throws(SyscallError) -> CInt {
     return try retryingSyscall(blocking: false) {
       CPlatformExecutors.epoll_create(size)
     }.result
@@ -476,7 +489,7 @@ internal enum Epoll {
     op: CInt,
     fd: CInt,
     event: UnsafeMutablePointer<epoll_event>
-  ) throws -> CInt {
+  ) throws(SyscallError) -> CInt {
     return try retryingSyscall(blocking: false) {
       CPlatformExecutors.epoll_ctl(epfd, op, fd, event)
     }.result
@@ -488,7 +501,7 @@ internal enum Epoll {
     events: UnsafeMutablePointer<epoll_event>,
     maxevents: CInt,
     timeout: CInt
-  ) throws -> CInt {
+  ) throws(SyscallError) -> CInt {
     return try retryingSyscall(blocking: false) {
       CPlatformExecutors.epoll_wait(epfd, events, maxevents, timeout)
     }.result
