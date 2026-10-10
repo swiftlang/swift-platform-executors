@@ -37,6 +37,8 @@ package final class PThreadMainExecutor: SerialExecutor, @unchecked Sendable {
   /// Creates a new `PThreadMainExecutor` that takes control of the current thread.
   package init() {
     self.pThreadExecutor = PThreadExecutor()
+    // The jobs run isolated to this executor.
+    self.pThreadExecutor.executionContext = .serial(self.asUnownedSerialExecutor())
   }
 
   package func enqueue(_ job: UnownedJob) {
@@ -45,9 +47,7 @@ package final class PThreadMainExecutor: SerialExecutor, @unchecked Sendable {
 
   package func run() throws {
     // We are taking over the current thread
-    try self.pThreadExecutor.run { job in
-      job.runSynchronously(on: self.asUnownedSerialExecutor())
-    }
+    try self.pThreadExecutor.run()
   }
 
   package func stop() {

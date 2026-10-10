@@ -71,6 +71,17 @@ import Darwin
 package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   /// The mechanism that performs this executor's I/O.
   typealias Backend = PlatformIOBackend
+
+  /// The executor context passed when running jobs or resuming continuations.
+  // TODO: We should drop the TaskExecutor conformance of PThreadExecutor
+  // in the future and also support passing both a serial and task executor
+  // once the runtime fixes its execution context handling.
+  enum ExecutionContext {
+    case thisExecutor
+    case task(UnownedTaskExecutor)
+    case serial(UnownedSerialExecutor)
+  }
+
   /// This is the state that is accessed from multiple threads; hence, it must be protected via a lock.
   private struct MultiThreadedState: ~Copyable {
     /// Indicates if we are running and about to pop more jobs. If this is true then we don't have to wake the selector.
@@ -223,6 +234,9 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   /// The index of this executor in the pool of a ``PThreadTaskExecutor``, or zero if it is not part of a pool.
   internal let poolIndex: Int
 
+  /// The execution context used when running jobs or resuming continuations.
+  internal var executionContext = ExecutionContext.thisExecutor
+
   /// Returns if we are currently running on the executor.
   internal var onExecutor: Bool {
     return self.thread?.isCurrent ?? false
@@ -291,6 +305,20 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   ) {
     self.init(poolIndex: poolIndex)
 
+    // It is incredibly important that we pass the right task executor
+    // to the run methods otherwise the Concurrency runtime will re-enqueue
+    // the task over and over again. If this executor is part of a thread pool
+    // then we must pass the pool as the executor.
+    if let taskExecutor, let serialExecutor {
+      // TODO: This is currently not supported because the runtime doesn't handle
+      // it correctly.
+      fatalError("Currently not supported to run as both serial and task executor")
+    } else if let taskExecutor {
+      self.executionContext = .task(taskExecutor)
+    } else if let serialExecutor {
+      self.executionContext = .serial(serialExecutor)
+    }
+
     let conditionVariable = ConditionVariable(true)
     let thread = Thread.spawnAndRun(name: name, stackSize: stackSize) {
       do {
@@ -304,23 +332,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
         // Signal that we've started running
         conditionVariable.signal { $0.toggle() }
 
-        // It is incredibly important that we pass the right task executor
-        // to the run methods otherwise the Concurrency runtime will re-enqueue
-        // the task over and over again. If this executor is part of a thread pool
-        // then we must pass the pool as the executor.
-        if let taskExecutor {
-          try self.run { job in
-            job.runSynchronously(on: taskExecutor)
-          }
-        } else if let serialExecutor {
-          try self.run { job in
-            job.runSynchronously(on: serialExecutor)
-          }
-        } else {
-          try self.run { job in
-            job.runSynchronously(on: self.asUnownedTaskExecutor())
-          }
-        }
+        try self.run()
       } catch {
         // We fatalError here because the only reasons this can be hit is if the underlying kqueue/epoll give us
         // errors that we cannot handle which is an unrecoverable error for us.
@@ -450,15 +462,35 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     try Backend.wakeup(self.wakeupHandle)
   }
 
+  /// Returns a closure that runs a job on ``executionContext``.
+  internal func makeJobRunner() -> (UnownedJob) -> Void {
+    switch self.executionContext {
+    case .thisExecutor:
+      let taskExecutor = self.asUnownedTaskExecutor()
+      return { job in job.runSynchronously(on: taskExecutor) }
+    case .task(let taskExecutor):
+      return { job in job.runSynchronously(on: taskExecutor) }
+    case .serial(let serialExecutor):
+      return { job in job.runSynchronously(on: serialExecutor) }
+    }
+  }
+
   /// Start processing the jobs and handle any I/O.
   ///
   /// This method will continue running and blocking if needed.
-  internal func run(runJobSynchronously: (UnownedJob) -> Void) throws {
+  internal func run() throws {
     if self.thread == nil {
       // The executor took over the calling thread, which does not have to be joined.
       self.thread = .some(Thread.current)
     }
     self.assertOnExecutor()
+
+    // We are creating our job runner and continuation resumer once to avoid
+    // any per-job/continuation overhead.
+    let runJob = self.makeJobRunner()
+    #if ExperimentalIO && !os(WASI)
+    let continuationResumer = self.makeContinuationResumer()
+    #endif
 
     // This is the outer loop that we use to block on our selector
     // and check if we should stop
@@ -498,7 +530,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
         guard let resumption = self.inFlightIOOperations.removeValue(forKey: id) else {
           fatalError("The I/O backend reported a result for an operation that is not in flight")
         }
-        resumption.resume(with: result)
+        resumption.resume(with: result, using: continuationResumer)
       }
       #endif
       self._completions.removeAll(keepingCapacity: true)
@@ -558,7 +590,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
         }
 
         for job in self.nextExecutedJobs {
-          runJobSynchronously(job)
+          runJob(job)
         }
 
         // Remove all the just executed jobs but keep the capacity.
@@ -772,6 +804,47 @@ extension PThreadExecutor {
     /// Resumes with void, so the result only reports whether the operation succeeded.
     case void(Continuation<Void, IOError>)
 
+    /// Resumes the continuation with the result that the backend reported
+    ///
+    /// - Parameters:
+    ///   - result: The result that the backend reported.
+    ///   - resumer: The resumer that offers the current thread to the resumed task.
+    internal consuming func resume(
+      with result: Result<Int, IOError>,
+      using resumer: ContinuationResumer
+    ) {
+      switch consume self {
+      case .connection(let continuation, let socket, let executorIndex):
+        switch result {
+        case .success:
+          resumer.resumeConnection(
+            continuation,
+            .success(TCPConnection(fileDescriptor: socket, executorIndex: executorIndex))
+          )
+        case .failure(let error):
+          try? StreamSocketSyscall.close(socket)
+          resumer.resumeConnection(continuation, .failure(error))
+        }
+
+      case .acceptedConnection(let continuation, let executorIndex):
+        switch result {
+        case .success(let fileDescriptor):
+          resumer.resumeConnection(
+            continuation,
+            .success(TCPConnection(fileDescriptor: CInt(fileDescriptor), executorIndex: executorIndex))
+          )
+        case .failure(let error):
+          resumer.resumeConnection(continuation, .failure(error))
+        }
+
+      case .byteCount(let continuation):
+        resumer.resumeByteCount(continuation, result)
+
+      case .void(let continuation):
+        resumer.resumeVoid(continuation, result.map { _ in () })
+      }
+    }
+
     /// Resumes the continuation with the result that the backend reported.
     internal consuming func resume(with result: Result<Int, IOError>) {
       switch consume self {
@@ -808,6 +881,59 @@ extension PThreadExecutor {
           continuation.resume(throwing: error)
         }
       }
+    }
+  }
+}
+
+@available(anyAppleOS 27.0, *)
+extension PThreadExecutor {
+  /// Resumes continuations, offering the current thread to the resumed tasks.
+  internal struct ContinuationResumer {
+    /// Resumes a continuation that produces a connection.
+    let resumeConnection: (consuming Continuation<TCPConnection, IOError>, Result<TCPConnection, IOError>) -> Void
+
+    /// Resumes a continuation that produces a number of bytes.
+    let resumeByteCount: (consuming Continuation<Int, IOError>, Result<Int, IOError>) -> Void
+
+    /// Resumes a continuation that only reports whether its operation succeeded.
+    let resumeVoid: (consuming Continuation<Void, IOError>, Result<Void, IOError>) -> Void
+
+    /// Creates a resumer whose resumed tasks run inline if they run on the given task executor.
+    init(taskExecutor: UnownedTaskExecutor) {
+      self.resumeConnection = { continuation, result in
+        continuation.resume(with: result, on: taskExecutor)
+      }
+      self.resumeByteCount = { continuation, result in
+        continuation.resume(with: result, on: taskExecutor)
+      }
+      self.resumeVoid = { continuation, result in
+        continuation.resume(with: result, on: taskExecutor)
+      }
+    }
+
+    /// Creates a resumer whose resumed tasks run inline if they are isolated to the given serial executor.
+    init(serialExecutor: UnownedSerialExecutor) {
+      self.resumeConnection = { continuation, result in
+        continuation.resume(with: result, isolatedTo: serialExecutor)
+      }
+      self.resumeByteCount = { continuation, result in
+        continuation.resume(with: result, isolatedTo: serialExecutor)
+      }
+      self.resumeVoid = { continuation, result in
+        continuation.resume(with: result, isolatedTo: serialExecutor)
+      }
+    }
+  }
+
+  /// Returns a resumer that offers the current thread to resumed tasks that run on ``executionContext``.
+  internal func makeContinuationResumer() -> ContinuationResumer {
+    switch self.executionContext {
+    case .thisExecutor:
+      return ContinuationResumer(taskExecutor: self.asUnownedTaskExecutor())
+    case .task(let taskExecutor):
+      return ContinuationResumer(taskExecutor: taskExecutor)
+    case .serial(let serialExecutor):
+      return ContinuationResumer(serialExecutor: serialExecutor)
     }
   }
 }
