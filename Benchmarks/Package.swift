@@ -11,7 +11,7 @@ let package = Package(
     // The name is set explicitly: otherwise SwiftPM infers it from the directory name of the
     // checkout, which breaks in git worktrees (where the directory is named after the worktree).
     .package(name: "swift-platform-executors", path: "../", traits: ["ExperimentalIO"]),
-    .package(url: "https://github.com/ordo-one/benchmark.git", from: "1.36.4"),
+    .package(url: "https://github.com/ordo-one/benchmark.git", from: "1.37.0"),
   ],
   targets: [
     .executableTarget(
