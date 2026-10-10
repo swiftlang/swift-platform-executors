@@ -56,6 +56,24 @@ let benchmarks: @Sendable () -> Void = {
     )
   }
 
+  Benchmark(
+    "TCPConnect",
+    configuration: .init(
+      metrics: defaultMetrics,
+      scalingFactor: .kilo,
+      maxDuration: .seconds(10_000_000),
+      maxIterations: 5
+    )
+  ) { benchmark in
+    guard #available(anyAppleOS 27.0, *) else {
+      fatalError("The TCP connect benchmark requires the I/O APIs.")
+    }
+    try await runTCPConnect(
+      numberOfConnections: benchmark.scaledIterations.upperBound,
+      benchmark: benchmark
+    )
+  }
+
   for connections in [10, 100, 1000] {
     Benchmark(
       "TCPEcho\(connections)Connections",
