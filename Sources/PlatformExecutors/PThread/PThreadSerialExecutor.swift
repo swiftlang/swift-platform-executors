@@ -72,11 +72,13 @@ public final class PThreadSerialExecutor: SerialExecutor, @unchecked Sendable {
   ///   - stackSize: The stack size in bytes of the executor's background thread, or `nil` to use the
   ///     platform's default thread stack size. Must be greater than 0. The value is rounded up to a multiple
   ///     of the page size and to at least 128 KiB, or the platform's minimum thread stack size if larger.
+  ///   - ioBackend: The mechanism that the executor's thread waits for events and performs its I/O with.
   ///   - body: A closure that gets access to the serial executor for the duration of execution.
   /// - Returns: The value returned by the body closure.
   public nonisolated(nonsending) static func withExecutor<Return, Failure: Error>(
     name: String,
     stackSize: Int? = nil,
+    ioBackend: PThreadIOBackend = .platformDefault,
     body: (PThreadSerialExecutor) async throws(Failure) -> Return
   ) async throws(Failure) -> Return {
     do {
@@ -84,6 +86,7 @@ public final class PThreadSerialExecutor: SerialExecutor, @unchecked Sendable {
         name: name,
         stackSize: stackSize,
         serialExecutor: nil,
+        ioBackend: ioBackend,
         body: body
       )
     } catch {
@@ -97,6 +100,7 @@ public final class PThreadSerialExecutor: SerialExecutor, @unchecked Sendable {
     name: String,
     stackSize: Int? = nil,
     serialExecutor: UnownedSerialExecutor?,
+    ioBackend: PThreadIOBackend = .platformDefault,
     body: (PThreadSerialExecutor) async throws -> Return
   ) async rethrows -> Return {
     let executor = PThreadSerialExecutor()
@@ -104,7 +108,8 @@ public final class PThreadSerialExecutor: SerialExecutor, @unchecked Sendable {
       name: name,
       stackSize: stackSize,
       serialExecutor: serialExecutor ?? executor.asUnownedSerialExecutor(),
-      taskExecutor: nil
+      taskExecutor: nil,
+      ioBackend: ioBackend
     )
 
     return try await asyncDo {

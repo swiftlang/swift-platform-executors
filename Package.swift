@@ -39,10 +39,18 @@ let package = Package(
     .trait(
       name: "ExperimentalIO",
       description: "Trait guarding experimental and highly unstable I/O interfaces"
-    )
+    ),
+    // Performs the I/O of the PThread based executors with `io_uring` on Linux.
+    .trait(
+      name: "ExperimentalIOUring",
+      description: "Trait performing the I/O with io_uring on Linux",
+      enabledTraits: ["ExperimentalIO"]
+    ),
   ],
   dependencies: [
     .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0"),
+    // Uses a custom branch until the io_uring socket APIs land
+    .package(url: "https://github.com/apple/swift-system.git", branch: "fb-io-uring-sockets"),
     .package(
       url: "https://github.com/apple/swift-collections.git",
       exact: "1.7.1",
@@ -66,6 +74,16 @@ let package = Package(
           name: "DequeModule",
           package: "swift-collections",
           condition: .when(traits: ["ExperimentalIO"])
+        ),
+        .product(
+          name: "SystemPackage",
+          package: "swift-system",
+          condition: .when(platforms: [.linux], traits: ["ExperimentalIOUring"])
+        ),
+        .product(
+          name: "SystemSockets",
+          package: "swift-system",
+          condition: .when(platforms: [.linux], traits: ["ExperimentalIOUring"])
         ),
       ],
       swiftSettings: swiftSettings

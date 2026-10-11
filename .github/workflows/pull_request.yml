@@ -27,3 +27,23 @@ jobs:
     uses: swiftlang/github-workflows/.github/workflows/soundness.yml@main
     with:
       license_header_check_project_name: "Swift Platform Executors"
+
+  io-uring-tests:
+    # The shared Linux job builds without the io_uring trait, and its container uses Docker's default seccomp
+    # profile, which blocks `io_uring`. This job allows `io_uring` and runs the tests on both epoll and
+    # io_uring. The test log names the backends that the tests ran on.
+    name: Test / Linux io_uring (6.4 - resolute - aarch64)
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: swift:6.4-resolute
+      options: --security-opt seccomp=unconfined
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Pre-build
+        # The same toolchain of https://github.com/swiftlang/swift/pull/91981 as the shared Linux job.
+        run: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y curl && curl -fsSL -o /tmp/toolchain.tar.gz https://download.swift.org/tmp/pull-request/91981/9/ubuntu2604/PR-ubuntu2604.tar.gz && tar -xzf /tmp/toolchain.tar.gz -C / && rm /tmp/toolchain.tar.gz
+      - name: Build / Test
+        run: swift test --traits ExperimentalIOUring
