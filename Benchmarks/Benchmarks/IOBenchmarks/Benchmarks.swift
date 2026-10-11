@@ -134,4 +134,54 @@ let benchmarks: @Sendable () -> Void = {
       )
     }
   }
+
+  for (connections, idleConnections, poolSize) in [(100, 0, 1), (1000, 0, 1), (1000, 0, 4), (100, 1000, 1)] {
+    var name = "TCPRequestResponse\(connections)\(idleConnections > 0 ? "Active\(idleConnections)Idle" : "")Connections"
+    if poolSize > 1 {
+      name += "PoolSize\(poolSize)"
+    }
+    ioBenchmark(
+      name,
+      configuration: .init(
+        metrics: defaultMetrics,
+        scalingFactor: .one,
+        maxDuration: .seconds(10_000_000),
+        maxIterations: 5
+      )
+    ) { benchmark, ioBackend in
+      guard #available(anyAppleOS 27.0, *) else {
+        fatalError("The TCP request response benchmark requires the I/O APIs.")
+      }
+      try await runTCPRequestResponse(
+        connections: connections,
+        idleConnections: idleConnections,
+        requestsPerConnection: 100,
+        poolSize: poolSize,
+        ioBackend: ioBackend,
+        benchmark: benchmark
+      )
+    }
+  }
+
+  for poolSize in [1, 4] {
+    ioBenchmark(
+      poolSize > 1 ? "TCPStreamPoolSize\(poolSize)" : "TCPStream",
+      configuration: .init(
+        metrics: defaultMetrics,
+        scalingFactor: .kilo,
+        maxDuration: .seconds(10_000_000),
+        maxIterations: 5
+      )
+    ) { benchmark, ioBackend in
+      guard #available(anyAppleOS 27.0, *) else {
+        fatalError("The TCP stream benchmark requires the I/O APIs.")
+      }
+      try await runTCPStream(
+        numberOfChunks: benchmark.scaledIterations.upperBound,
+        poolSize: poolSize,
+        ioBackend: ioBackend,
+        benchmark: benchmark
+      )
+    }
+  }
 }
