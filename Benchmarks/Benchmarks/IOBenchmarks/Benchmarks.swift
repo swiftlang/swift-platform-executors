@@ -11,6 +11,42 @@
 //===----------------------------------------------------------------------===//
 
 import Benchmark
+import PlatformExecutors
+
+/// The I/O backends that the benchmarks run on.
+let ioBackends: [PThreadIOBackend] = {
+  #if canImport(Darwin)
+  let candidates: [PThreadIOBackend] = [.kqueue]
+  #elseif canImport(Glibc)
+  let candidates: [PThreadIOBackend] = [.epoll, .ioUring]
+  #else
+  let candidates: [PThreadIOBackend] = [.platformDefault]
+  #endif
+  let backends = candidates.filter { ioBackend in
+    do {
+      try ioBackend.checkAvailability()
+      return true
+    } catch {
+      print("The benchmarks skip the \(ioBackend) backend, which is not available: \(error)")
+      return false
+    }
+  }
+  print("The benchmarks run on the I/O backends: \(backends)")
+  return backends
+}()
+
+/// Registers a benchmark once for every backend in ``ioBackends``.
+func ioBenchmark(
+  _ name: String,
+  configuration: Benchmark.Configuration,
+  closure: @escaping @Sendable (Benchmark, PThreadIOBackend) async throws -> Void
+) {
+  for ioBackend in ioBackends {
+    Benchmark("\(name) (\(ioBackend))", configuration: configuration) { benchmark in
+      try await closure(benchmark, ioBackend)
+    }
+  }
+}
 
 let benchmarks: @Sendable () -> Void = {
   let defaultMetrics: [BenchmarkMetric] = [
@@ -20,7 +56,7 @@ let benchmarks: @Sendable () -> Void = {
     .wallClock,
   ]
 
-  Benchmark(
+  ioBenchmark(
     "TCPPingPong",
     configuration: .init(
       metrics: defaultMetrics,
@@ -28,17 +64,18 @@ let benchmarks: @Sendable () -> Void = {
       maxDuration: .seconds(10_000_000),
       maxIterations: 5
     )
-  ) { benchmark in
+  ) { benchmark, ioBackend in
     guard #available(anyAppleOS 27.0, *) else {
       fatalError("The TCP ping pong benchmark requires the I/O APIs.")
     }
     try await runTCPPingPong(
       numberOfMessages: benchmark.scaledIterations.upperBound,
+      ioBackend: ioBackend,
       benchmark: benchmark
     )
   }
 
-  Benchmark(
+  ioBenchmark(
     "TCPEcho",
     configuration: .init(
       metrics: defaultMetrics,
@@ -46,17 +83,18 @@ let benchmarks: @Sendable () -> Void = {
       maxDuration: .seconds(10_000_000),
       maxIterations: 5
     )
-  ) { benchmark in
+  ) { benchmark, ioBackend in
     guard #available(anyAppleOS 27.0, *) else {
       fatalError("The TCP echo benchmark requires the I/O APIs.")
     }
     try await runTCPEcho(
       numberOfMessages: benchmark.scaledIterations.upperBound,
+      ioBackend: ioBackend,
       benchmark: benchmark
     )
   }
 
-  Benchmark(
+  ioBenchmark(
     "TCPConnect",
     configuration: .init(
       metrics: defaultMetrics,
@@ -64,18 +102,19 @@ let benchmarks: @Sendable () -> Void = {
       maxDuration: .seconds(10_000_000),
       maxIterations: 5
     )
-  ) { benchmark in
+  ) { benchmark, ioBackend in
     guard #available(anyAppleOS 27.0, *) else {
       fatalError("The TCP connect benchmark requires the I/O APIs.")
     }
     try await runTCPConnect(
       numberOfConnections: benchmark.scaledIterations.upperBound,
+      ioBackend: ioBackend,
       benchmark: benchmark
     )
   }
 
   for connections in [10, 100, 1000] {
-    Benchmark(
+    ioBenchmark(
       "TCPEcho\(connections)Connections",
       configuration: .init(
         metrics: defaultMetrics,
@@ -83,11 +122,16 @@ let benchmarks: @Sendable () -> Void = {
         maxDuration: .seconds(10_000_000),
         maxIterations: 5
       )
-    ) { benchmark in
+    ) { benchmark, ioBackend in
       guard #available(anyAppleOS 27.0, *) else {
         fatalError("The TCP echo benchmark requires the I/O APIs.")
       }
-      try await runTCPEcho(connections: connections, messagesPerConnection: 100, benchmark: benchmark)
+      try await runTCPEcho(
+        connections: connections,
+        messagesPerConnection: 100,
+        ioBackend: ioBackend,
+        benchmark: benchmark
+      )
     }
   }
 }

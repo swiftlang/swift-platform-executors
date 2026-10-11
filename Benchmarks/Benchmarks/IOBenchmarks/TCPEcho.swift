@@ -21,13 +21,14 @@ private let messageSize = 10_000
 ///
 /// - Parameters:
 ///   - numberOfMessages: The number of messages that the client writes.
+///   - ioBackend: The I/O backend that the executor's threads use.
 ///   - benchmark: The benchmark to measure.
 @available(anyAppleOS 27.0, *)
-func runTCPEcho(numberOfMessages: Int, benchmark: Benchmark) async throws {
+func runTCPEcho(numberOfMessages: Int, ioBackend: PThreadIOBackend, benchmark: Benchmark) async throws {
   var clientBuffers: EchoClientBuffers? = EchoClientBuffers()
   var serverBuffer = UniqueArray<UInt8>(minimumCapacity: messageSize)
 
-  try await PThreadTaskExecutor.withExecutor(name: "TCPEcho", poolSize: 1) { executor in
+  try await PThreadTaskExecutor.withExecutor(name: "TCPEcho", poolSize: 1, ioBackend: ioBackend) { executor in
     try await withTaskExecutorPreference(executor) {
       benchmark.startMeasurement()
       defer {

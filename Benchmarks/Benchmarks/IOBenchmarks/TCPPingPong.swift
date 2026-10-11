@@ -20,10 +20,11 @@ private let messageSize = 10_000
 ///
 /// - Parameters:
 ///   - numberOfMessages: The number of messages that go back and forth.
+///   - ioBackend: The I/O backend that the executor's threads use.
 ///   - benchmark: The benchmark to measure.
 @available(anyAppleOS 27.0, *)
-func runTCPPingPong(numberOfMessages: Int, benchmark: Benchmark) async throws {
-  try await PThreadTaskExecutor.withExecutor(name: "TCPPingPong", poolSize: 1) { executor in
+func runTCPPingPong(numberOfMessages: Int, ioBackend: PThreadIOBackend, benchmark: Benchmark) async throws {
+  try await PThreadTaskExecutor.withExecutor(name: "TCPPingPong", poolSize: 1, ioBackend: ioBackend) { executor in
     try await withTaskExecutorPreference(executor) {
       benchmark.startMeasurement()
       defer {
