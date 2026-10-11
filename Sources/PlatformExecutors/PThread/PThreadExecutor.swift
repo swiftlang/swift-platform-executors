@@ -118,9 +118,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   /// This is the state that is bound to this thread.
   struct ThreadBoundState: ~Copyable {
     /// The backing storage for the backend.
-    ///
-    /// This is a force try since there really is no way to handle these errors and this should never fail.
-    var _backend = try! Backend()
+    var _backend: Backend
 
     /// The backing storage of the next executed jobs.
     fileprivate var _nextExecutedJobs: ContiguousArray<UnownedJob>
@@ -138,7 +136,8 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     )
     #endif
 
-    fileprivate init(_nextExecutedJobs: consuming ContiguousArray<UnownedJob>) {
+    fileprivate init(_nextExecutedJobs: consuming ContiguousArray<UnownedJob>, ioBackend: PThreadIOBackend) {
+      self._backend = Backend(ioBackend)
       self._nextExecutedJobs = _nextExecutedJobs
     }
   }
@@ -262,11 +261,13 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   ///   - stackSize: The stack size in bytes of the executor's background thread, or `nil` to use the
   ///     platform's default thread stack size. Must be greater than 0. The value is rounded up to a multiple
   ///     of the page size and to at least 128 KiB, or the platform's minimum thread stack size if larger.
+  ///   - ioBackend: The mechanism that the executor's thread waits for events and performs its I/O with.
   ///   - body: A closure that gets access to the task executor for the duration of execution.
   /// - Returns: The value returned by the body closure.
   package nonisolated(nonsending) static func withExecutor<Return, Failure: Error>(
     name: String,
     stackSize: Int? = nil,
+    ioBackend: PThreadIOBackend = .platformDefault,
     body: (PThreadExecutor) async throws(Failure) -> Return
   ) async throws(Failure) -> Return {
     do {
@@ -275,6 +276,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
         stackSize: stackSize,
         taskExecutor: nil,
         serialExecutor: nil,
+        ioBackend: ioBackend,
         body: body
       )
     } catch {
@@ -289,13 +291,15 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     stackSize: Int? = nil,
     taskExecutor: UnownedTaskExecutor?,
     serialExecutor: UnownedSerialExecutor?,
+    ioBackend: PThreadIOBackend = .platformDefault,
     body: (PThreadExecutor) async throws -> Return
   ) async rethrows -> Return {
     let executor = PThreadExecutor(
       name: name,
       stackSize: stackSize,
       serialExecutor: serialExecutor,
-      taskExecutor: taskExecutor
+      taskExecutor: taskExecutor,
+      ioBackend: ioBackend
     )
 
     return try await asyncDo {
@@ -310,9 +314,10 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     stackSize: Int? = nil,
     poolIndex: Int = 0,
     serialExecutor: UnownedSerialExecutor?,
-    taskExecutor: UnownedTaskExecutor?
+    taskExecutor: UnownedTaskExecutor?,
+    ioBackend: PThreadIOBackend = .platformDefault
   ) {
-    self.init(poolIndex: poolIndex)
+    self.init(poolIndex: poolIndex, ioBackend: ioBackend)
 
     // It is incredibly important that we pass the right task executor
     // to the run methods otherwise the Concurrency runtime will re-enqueue
@@ -361,10 +366,11 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     }
   }
 
-  internal init(poolIndex: Int = 0) {
+  internal init(poolIndex: Int = 0, ioBackend: PThreadIOBackend = .platformDefault) {
     self.poolIndex = poolIndex
     self._threadBoundState = .init(
-      _nextExecutedJobs: ContiguousArray()
+      _nextExecutedJobs: ContiguousArray(),
+      ioBackend: ioBackend
     )
     self.wakeupHandle = self._threadBoundState._backend.wakeupHandle
   }
@@ -990,7 +996,7 @@ extension PThreadExecutor {
     resuming resumption: consuming Resumption
   ) -> IOOperationID? {
     // We first try to attempt the operation if it can be done synchronously.
-    if let result = Backend.attempt(operation) {
+    if let result = Backend.attempt(operation, handle: self.wakeupHandle) {
       resumption.resume(with: result)
       return nil
     }
