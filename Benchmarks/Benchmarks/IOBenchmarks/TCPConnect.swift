@@ -18,10 +18,11 @@ import PlatformExecutors
 ///
 /// - Parameters:
 ///   - numberOfConnections: The number of connections to connect and accept.
+///   - ioBackend: The I/O backend that the executor's threads use.
 ///   - benchmark: The benchmark to measure.
 @available(anyAppleOS 27.0, *)
-func runTCPConnect(numberOfConnections: Int, benchmark: Benchmark) async throws {
-  try await PThreadTaskExecutor.withExecutor(name: "TCPConnect", poolSize: 1) { executor in
+func runTCPConnect(numberOfConnections: Int, ioBackend: PThreadIOBackend, benchmark: Benchmark) async throws {
+  try await PThreadTaskExecutor.withExecutor(name: "TCPConnect", poolSize: 1, ioBackend: ioBackend) { executor in
     try await withTaskExecutorPreference(executor) {
       let listener = try await TCPListener.bind(
         to: .v4(SocketAddress.V4(address: .loopback, port: 0)),

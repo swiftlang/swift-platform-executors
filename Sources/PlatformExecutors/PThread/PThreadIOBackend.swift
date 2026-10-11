@@ -79,7 +79,7 @@ public struct PThreadIOBackend: Sendable, Hashable, CustomStringConvertible {
 
 extension PThreadIOBackend {
   /// Checks that an executor can be created with this mechanism.
-  package func checkAvailability() throws {
+  public func checkAvailability() throws {
     #if canImport(Glibc) && ExperimentalIOUring
     if self.kind == .ioUring {
       _ = try IOUringBackend()

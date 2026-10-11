@@ -25,15 +25,22 @@ private let readBufferSize = 64 * 1024
 /// - Parameters:
 ///   - connections: The number of connections.
 ///   - messagesPerConnection: The number of messages that every client writes.
+///   - ioBackend: The I/O backend that the executor's threads use.
 ///   - benchmark: The benchmark to measure.
 @available(anyAppleOS 27.0, *)
-func runTCPEcho(connections: Int, messagesPerConnection: Int, benchmark: Benchmark) async throws {
+func runTCPEcho(
+  connections: Int,
+  messagesPerConnection: Int,
+  ioBackend: PThreadIOBackend,
+  benchmark: Benchmark
+) async throws {
   var buffers = UniqueArray<ConnectionBuffers>(minimumCapacity: connections)
   for _ in 0..<connections {
     buffers.append(ConnectionBuffers())
   }
 
-  try await PThreadTaskExecutor.withExecutor(name: "TCPEchoConnections", poolSize: 1) { executor in
+  try await PThreadTaskExecutor.withExecutor(name: "TCPEchoConnections", poolSize: 1, ioBackend: ioBackend) {
+    executor in
     try await withTaskExecutorPreference(executor) {
       benchmark.startMeasurement()
       defer {

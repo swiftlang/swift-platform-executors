@@ -10,7 +10,7 @@ let package = Package(
   dependencies: [
     // The name is set explicitly: otherwise SwiftPM infers it from the directory name of the
     // checkout, which breaks in git worktrees (where the directory is named after the worktree).
-    .package(name: "swift-platform-executors", path: "../", traits: ["ExperimentalIO"]),
+    .package(name: "swift-platform-executors", path: "../", traits: ["ExperimentalIOUring"]),
     .package(url: "https://github.com/ordo-one/benchmark.git", from: "1.37.0"),
     .package(url: "https://github.com/apple/swift-collections.git", exact: "1.7.1"),
   ],
