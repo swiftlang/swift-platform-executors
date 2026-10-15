@@ -22,10 +22,10 @@ struct TCPSocketTests {
   @available(anyAppleOS 27.0, *)
   private static let loopback = SocketAddress.v4(SocketAddress.V4(address: .loopback, port: 0))
 
-  @Test
+  @Test(arguments: PThreadIOBackend.tested)
   @available(anyAppleOS 27.0, *)
-  func bindReportsThePickedPort() async throws {
-    try await PThreadExecutor.withExecutor(name: "TCPSocketTest") { executor in
+  func bindReportsThePickedPort(ioBackend: PThreadIOBackend) async throws {
+    try await PThreadExecutor.withExecutor(name: "TCPSocketTest", ioBackend: ioBackend) { executor in
       try await withOperationScheduler(executor) {
         let listener = try await TCPListener.bind(to: Self.loopback)
         let address = try listener.localAddress
@@ -41,10 +41,10 @@ struct TCPSocketTests {
     }
   }
 
-  @Test
+  @Test(arguments: PThreadIOBackend.tested)
   @available(anyAppleOS 27.0, *)
-  func connectToRefusedPortFails() async throws {
-    try await PThreadExecutor.withExecutor(name: "TCPSocketTest") { executor in
+  func connectToRefusedPortFails(ioBackend: PThreadIOBackend) async throws {
+    try await PThreadExecutor.withExecutor(name: "TCPSocketTest", ioBackend: ioBackend) { executor in
       try await withOperationScheduler(executor) {
         try await withRefusingAddress { address in
           await #expect(throws: IOError.self) {
@@ -56,40 +56,41 @@ struct TCPSocketTests {
     }
   }
 
-  @Test
+  @Test(arguments: PThreadIOBackend.tested)
   @available(anyAppleOS 27.0, *)
-  func echoWithOperationScheduler() async throws {
-    try await PThreadExecutor.withExecutor(name: "TCPSocketTest") { executor in
+  func echoWithOperationScheduler(ioBackend: PThreadIOBackend) async throws {
+    try await PThreadExecutor.withExecutor(name: "TCPSocketTest", ioBackend: ioBackend) { executor in
       try await withOperationScheduler(executor) {
         try await Self.echo()
       }
     }
   }
 
-  @Test(arguments: [1, 4])
+  @Test(arguments: PThreadIOBackend.tested, [1, 4])
   @available(anyAppleOS 27.0, *)
-  func echoWithPThreadTaskExecutorPreference(poolSize: Int) async throws {
-    try await PThreadTaskExecutor.withExecutor(name: "TCPSocketTest", poolSize: poolSize) { executor in
+  func echoWithPThreadTaskExecutorPreference(ioBackend: PThreadIOBackend, poolSize: Int) async throws {
+    try await PThreadTaskExecutor.withExecutor(name: "TCPSocketTest", poolSize: poolSize, ioBackend: ioBackend) {
+      executor in
       try await withTaskExecutorPreference(executor) {
         try await Self.echo()
       }
     }
   }
 
-  @Test
+  @Test(arguments: PThreadIOBackend.tested)
   @available(anyAppleOS 27.0, *)
-  func echoWithTaskExecutorPreference() async throws {
-    try await PThreadExecutor.withExecutor(name: "TCPSocketTest") { executor in
+  func echoWithTaskExecutorPreference(ioBackend: PThreadIOBackend) async throws {
+    try await PThreadExecutor.withExecutor(name: "TCPSocketTest", ioBackend: ioBackend) { executor in
       try await withTaskExecutorPreference(executor) {
         try await Self.echo()
       }
     }
   }
 
-  @Test
+  @Test(arguments: PThreadIOBackend.tested)
   @available(anyAppleOS 27.0, *)
-  func acceptOnACancelledTaskResumesWithCancelled() async throws {
-    try await PThreadExecutor.withExecutor(name: "TCPSocketTest") { executor in
+  func acceptOnACancelledTaskResumesWithCancelled(ioBackend: PThreadIOBackend) async throws {
+    try await PThreadExecutor.withExecutor(name: "TCPSocketTest", ioBackend: ioBackend) { executor in
       try await withOperationScheduler(executor) {
         try await withThrowingTaskGroup { group in
           group.addTask {
@@ -112,22 +113,26 @@ struct TCPSocketTests {
     }
   }
 
-  @Test
+  @Test(arguments: PThreadIOBackend.tested)
   @available(anyAppleOS 27.0, *)
-  func cancellingAPendingAcceptResumesWithCancelled() async throws {
-    try await PThreadExecutor.withExecutor(name: "TCPSocketTest") { executor in
+  func cancellingAPendingAcceptResumesWithCancelled(ioBackend: PThreadIOBackend) async throws {
+    try await PThreadExecutor.withExecutor(name: "TCPSocketTest", ioBackend: ioBackend) { executor in
       try await withOperationScheduler(executor) {
         try await Self.cancelPendingAccept()
       }
     }
   }
 
-  @Test(arguments: [1, 4])
+  @Test(arguments: PThreadIOBackend.tested, [1, 4])
   @available(anyAppleOS 27.0, *)
-  func cancellingAPendingAcceptOnTheExecutorResumesWithCancelled(poolSize: Int) async throws {
+  func cancellingAPendingAcceptOnTheExecutorResumesWithCancelled(
+    ioBackend: PThreadIOBackend,
+    poolSize: Int
+  ) async throws {
     // The task that cancels runs on the executor, so the cancellation
     // reaches the backend directly instead of through the executor's queue.
-    try await PThreadTaskExecutor.withExecutor(name: "TCPSocketTest", poolSize: poolSize) { executor in
+    try await PThreadTaskExecutor.withExecutor(name: "TCPSocketTest", poolSize: poolSize, ioBackend: ioBackend) {
+      executor in
       try await withTaskExecutorPreference(executor) {
         try await Self.cancelPendingAccept()
       }
@@ -163,10 +168,10 @@ struct TCPSocketTests {
     }
   }
 
-  @Test
+  @Test(arguments: PThreadIOBackend.tested)
   @available(anyAppleOS 27.0, *)
-  func cancellingAPendingReadResumesWithCancelledAndKeepsTheConnection() async throws {
-    try await PThreadExecutor.withExecutor(name: "TCPSocketTest") { executor in
+  func cancellingAPendingReadResumesWithCancelledAndKeepsTheConnection(ioBackend: PThreadIOBackend) async throws {
+    try await PThreadExecutor.withExecutor(name: "TCPSocketTest", ioBackend: ioBackend) { executor in
       try await withOperationScheduler(executor) {
         let listener = try await TCPListener.bind(to: Self.loopback)
         var client = try await TCPConnection.connect(to: listener.localAddress)
@@ -211,10 +216,11 @@ struct TCPSocketTests {
     }
   }
 
-  @Test(arguments: [1, 4])
+  @Test(arguments: PThreadIOBackend.tested, [1, 4])
   @available(anyAppleOS 27.0, *)
-  func cancellingAPendingWriteResumesWithCancelled(poolSize: Int) async throws {
-    try await PThreadTaskExecutor.withExecutor(name: "TCPSocketTest", poolSize: poolSize) { executor in
+  func cancellingAPendingWriteResumesWithCancelled(ioBackend: PThreadIOBackend, poolSize: Int) async throws {
+    try await PThreadTaskExecutor.withExecutor(name: "TCPSocketTest", poolSize: poolSize, ioBackend: ioBackend) {
+      executor in
       try await withTaskExecutorPreference(executor) {
         let listener = try await TCPListener.bind(to: Self.loopback)
         // This is more than the socket buffers of both peers hold, and the
@@ -250,10 +256,10 @@ struct TCPSocketTests {
     }
   }
 
-  @Test
+  @Test(arguments: PThreadIOBackend.tested)
   @available(anyAppleOS 27.0, *)
-  func escalatingThePriorityOfAPendingAcceptKeepsItPending() async throws {
-    try await PThreadExecutor.withExecutor(name: "TCPSocketTest") { executor in
+  func escalatingThePriorityOfAPendingAcceptKeepsItPending(ioBackend: PThreadIOBackend) async throws {
+    try await PThreadExecutor.withExecutor(name: "TCPSocketTest", ioBackend: ioBackend) { executor in
       try await withOperationScheduler(executor) {
         let (addresses, addressesContinuation) = AsyncStream.makeStream(of: SocketAddress.self)
 
@@ -303,10 +309,11 @@ struct TCPSocketTests {
     }
   }
 
-  @Test(arguments: [1, 4])
+  @Test(arguments: PThreadIOBackend.tested, [1, 4])
   @available(anyAppleOS 27.0, *)
-  func concurrentEcho(poolSize: Int) async throws {
-    try await PThreadTaskExecutor.withExecutor(name: "TCPSocketTest", poolSize: poolSize) { executor in
+  func concurrentEcho(ioBackend: PThreadIOBackend, poolSize: Int) async throws {
+    try await PThreadTaskExecutor.withExecutor(name: "TCPSocketTest", poolSize: poolSize, ioBackend: ioBackend) {
+      executor in
       try await withTaskExecutorPreference(executor) {
         let listener = try await TCPListener.bind(to: Self.loopback)
         let address = try listener.localAddress

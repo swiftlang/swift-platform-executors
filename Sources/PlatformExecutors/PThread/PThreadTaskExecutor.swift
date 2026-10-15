@@ -64,11 +64,13 @@ public final class PThreadTaskExecutor: TaskExecutor {
   ///     thread stack size. Must be greater than 0. The value is rounded up to a multiple of the page size and
   ///     to at least 128 KiB, or the platform's minimum thread stack size if larger.
   ///   - taskExecutor: The task executor to use in-case this executor gets wrapped.
+  ///   - ioBackend: The mechanism that the threads of the pool wait for events and perform their I/O with.
   internal init(
     name: String,
     poolSize: Int? = nil,
     stackSize: Int? = nil,
-    taskExecutor: UnownedTaskExecutor?
+    taskExecutor: UnownedTaskExecutor?,
+    ioBackend: PThreadIOBackend = .platformDefault
   ) {
     let poolSize = poolSize ?? SystemCoreCount.coreCount
     self.name = "\(name)-size(\(poolSize))"
@@ -84,7 +86,8 @@ public final class PThreadTaskExecutor: TaskExecutor {
             stackSize: stackSize,
             poolIndex: i,
             serialExecutor: nil,
-            taskExecutor: taskExecutor
+            taskExecutor: taskExecutor,
+            ioBackend: ioBackend
           )
         )
     }
@@ -104,12 +107,14 @@ public final class PThreadTaskExecutor: TaskExecutor {
   ///   - stackSize: The stack size in bytes of each thread in the pool, or `nil` to use the platform's default
   ///     thread stack size. Must be greater than 0. The value is rounded up to a multiple of the page size and
   ///     to at least 128 KiB, or the platform's minimum thread stack size if larger.
+  ///   - ioBackend: The mechanism that the threads of the pool wait for events and perform their I/O with.
   ///   - body: A closure that gets access to the pooled task executor for the duration of execution.
   /// - Returns: The value returned by the body closure.
   public nonisolated(nonsending) static func withExecutor<Return, Failure: Error>(
     name: String,
     poolSize: Int? = nil,
     stackSize: Int? = nil,
+    ioBackend: PThreadIOBackend = .platformDefault,
     body: (PThreadTaskExecutor) async throws(Failure) -> Return
   ) async throws(Failure) -> Return {
     do {
@@ -118,6 +123,7 @@ public final class PThreadTaskExecutor: TaskExecutor {
         poolSize: poolSize,
         stackSize: stackSize,
         taskExecutor: nil,
+        ioBackend: ioBackend,
         body: body
       )
     } catch {
@@ -132,13 +138,15 @@ public final class PThreadTaskExecutor: TaskExecutor {
     poolSize: Int? = nil,
     stackSize: Int? = nil,
     taskExecutor: UnownedTaskExecutor?,
+    ioBackend: PThreadIOBackend = .platformDefault,
     body: (PThreadTaskExecutor) async throws -> Return
   ) async rethrows -> Return {
     let executor = PThreadTaskExecutor(
       name: name,
       poolSize: poolSize,
       stackSize: stackSize,
-      taskExecutor: taskExecutor
+      taskExecutor: taskExecutor,
+      ioBackend: ioBackend
     )
 
     return try await asyncDo {

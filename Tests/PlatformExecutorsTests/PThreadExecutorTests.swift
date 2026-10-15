@@ -19,11 +19,11 @@ import Testing
 
 @Suite
 struct PThreadExecutorTests {
-  @Test
+  @Test(arguments: PThreadIOBackend.tested)
   @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
-  func singleExecutor() async {
+  func singleExecutor(ioBackend: PThreadIOBackend) async {
     await PThreadTaskExecutor
-      .withExecutor(name: "Test", poolSize: 1) { executor in
+      .withExecutor(name: "Test", poolSize: 1, ioBackend: ioBackend) { executor in
         await withTaskExecutorPreference(executor) {
           for _ in 0...100 {
             await Task.yield()
@@ -32,12 +32,13 @@ struct PThreadExecutorTests {
       }
   }
 
-  @Test
+  @Test(arguments: PThreadIOBackend.tested)
   @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
-  func poolExecutor() async {
+  func poolExecutor(ioBackend: PThreadIOBackend) async {
     await PThreadTaskExecutor.withExecutor(
       name: "Test",
-      poolSize: 5
+      poolSize: 5,
+      ioBackend: ioBackend
     ) { executor in
       await withTaskExecutorPreference(executor) {
         for _ in 0...100 {
@@ -47,14 +48,15 @@ struct PThreadExecutorTests {
     }
   }
 
-  @Test
+  @Test(arguments: PThreadIOBackend.tested)
   @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
-  func taskExecutorStackSize() async {
+  func taskExecutorStackSize(ioBackend: PThreadIOBackend) async {
     let stackSize = 64 << 20
     await PThreadTaskExecutor.withExecutor(
       name: "BigStack",
       poolSize: 2,
-      stackSize: stackSize
+      stackSize: stackSize,
+      ioBackend: ioBackend
     ) { executor in
       await withTaskGroup { group in
         for _ in 0..<10 {
@@ -66,29 +68,31 @@ struct PThreadExecutorTests {
     }
   }
 
-  @Test
+  @Test(arguments: PThreadIOBackend.tested)
   @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
-  func serialExecutorStackSize() async {
+  func serialExecutorStackSize(ioBackend: PThreadIOBackend) async {
     let stackSize = 64 << 20
     await PThreadSerialExecutor.withExecutor(
       name: "BigStack",
-      stackSize: stackSize
+      stackSize: stackSize,
+      ioBackend: ioBackend
     ) { executor in
       let actor = StackSizeActor(executor: executor)
       #expect(await actor.currentStackSize() >= stackSize)
     }
   }
 
-  @Test
+  @Test(arguments: PThreadIOBackend.tested)
   @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
-  func stackSizeIsRoundedUp() async {
+  func stackSizeIsRoundedUp(ioBackend: PThreadIOBackend) async {
     // Not a page multiple and below the 128 KiB floor, which is enforced
     // because PTHREAD_STACK_MIN is too small to run Swift code on x86_64 glibc
     let stackSize = 1001
     await PThreadTaskExecutor.withExecutor(
       name: "TinyStack",
       poolSize: 1,
-      stackSize: stackSize
+      stackSize: stackSize,
+      ioBackend: ioBackend
     ) { executor in
       await Task(executorPreference: executor) {
         #expect(CPlatformExecutors_pthread_current_stack_size() >= 128 * 1024)
@@ -96,19 +100,23 @@ struct PThreadExecutorTests {
     }
   }
 
+  @Test(arguments: PThreadIOBackend.tested)
+  @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+  func test(ioBackend: PThreadIOBackend) async throws {
+    await PThreadExecutor.withExecutor(name: "Test", ioBackend: ioBackend) { executor in
+      #expect(await ExecutorFixture.test(executor: executor))
+    }
+    await PThreadTaskExecutor.withExecutor(name: "Test", ioBackend: ioBackend) { executor in
+      #expect(await ExecutorFixture.test(executor: executor))
+    }
+    await PThreadSerialExecutor.withExecutor(name: "Test", ioBackend: ioBackend) { executor in
+      #expect(await ExecutorFixture.test(executor: executor))
+    }
+  }
+
   @Test
   @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
-  func test() async throws {
-    await PThreadExecutor.withExecutor(name: "Test") { executor in
-      #expect(await ExecutorFixture.test(executor: executor))
-    }
-    await PThreadTaskExecutor.withExecutor(name: "Test") { executor in
-      #expect(await ExecutorFixture.test(executor: executor))
-    }
-    await PThreadSerialExecutor.withExecutor(name: "Test") { executor in
-      #expect(await ExecutorFixture.test(executor: executor))
-    }
-
+  func mainExecutor() async throws {
     let mainExecutor = PThreadMainExecutor()
     #expect(await ExecutorFixture.test(executor: mainExecutor))
     // We are manually shutting it down since normally it is expeceted to live
