@@ -147,8 +147,20 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   /// - Note:In the future we could use an MPSC queue and atomics here.
   private let _multiThreadedState = Mutex(MultiThreadedState())
 
-  /// This is the state that is accessed from the thread backing the executor.
+  /// This is the backing state that is accessed from the thread backing the executor.
   private var _threadBoundState: ThreadBoundState
+
+  /// This is the state that is accessed from the thread backing the executor.
+  private var threadBoundState: ThreadBoundState {
+    _read {
+      assert(self.onExecutor)
+      yield self._threadBoundState
+    }
+    _modify {
+      assert(self.onExecutor)
+      yield &self._threadBoundState
+    }
+  }
 
   /// The executor's I/O mechanism.
   ///
@@ -208,6 +220,9 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   /// The thread that runs this executor.
   private var thread: Thread?
 
+  /// The identity of the thread that runs this executor while it runs and zero otherwise.
+  private let runningThreadIdentity = Atomic<UInt>(0)
+
   /// The handle that wakes the backend up from another thread.
   ///
   /// This is held separately so waking the executor up never touches its thread bound state.
@@ -216,17 +231,6 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   #if ExperimentalIO && !os(WASI)
   /// The identity of the next submitted operation.
   private let _nextOperationID = Atomic<UInt>(1)
-  #endif
-
-  #if ExperimentalIO
-  /// The results of the operations that the backend handed over in this tick.
-  ///
-  /// - Note: This may only be used on the executor's thread.
-  private var _completions: [(IOOperationID, Result<Int, IOError>)] = {
-    var completions = [(IOOperationID, Result<Int, IOError>)]()
-    completions.reserveCapacity(IOOperation.reservedCapacity)
-    return completions
-  }()
   #endif
 
   /// The amount of jobs to process in a single executor tick.
@@ -243,11 +247,13 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   internal let poolIndex: Int
 
   /// The execution context used when running jobs or resuming continuations.
+  ///
+  /// - Note: This is set before the executor's thread starts and read once when it starts running.
   internal var executionContext = ExecutionContext.thisExecutor
 
   /// Returns if we are currently running on the executor.
   internal var onExecutor: Bool {
-    return self.thread?.isCurrent ?? false
+    return self.runningThreadIdentity.load(ordering: .relaxed) == PThread.currentThreadIdentity
   }
 
   /// Creates a new platform-native task executor.
@@ -498,6 +504,9 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
       // The executor took over the calling thread, which does not have to be joined.
       self.thread = .some(Thread.current)
     }
+    // This is cleared before the thread can end since a later thread can have the same identity.
+    self.runningThreadIdentity.store(PThread.currentThreadIdentity, ordering: .relaxed)
+    defer { self.runningThreadIdentity.store(0, ordering: .relaxed) }
     self.assertOnExecutor()
 
     // We are creating our job runner and continuation resumer once to avoid
@@ -520,11 +529,17 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     // relies on the wakeup that enqueuing it sent.
     var strategy = IOWaitStrategy.now
 
+    #if ExperimentalIO
+    // The results of the operations that the backend handed over in a tick.
+    var completions = [(IOOperationID, Result<Int, IOError>)]()
+    completions.reserveCapacity(IOOperation.reservedCapacity)
+    #endif
+
     while true {
       // Let's wait on the backend until an operation completes, a timer fires
       // or there is other work to do.
       #if ExperimentalIO
-      try self._backend.wait(strategy: strategy, completions: &self._completions)
+      try self._backend.wait(strategy: strategy, completions: &completions)
       #else
       try self._backend.wait(strategy: strategy)
       #endif
@@ -541,14 +556,14 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
       // enqueue. In the future, we might even run the continuations inline by
       // donating our thread.
       #if !os(WASI)
-      for (id, result) in self._completions {
+      for (id, result) in completions {
         guard let resumption = self.inFlightIOOperations.removeValue(forKey: id) else {
           fatalError("The I/O backend reported a result for an operation that is not in flight")
         }
         resumption.resume(with: result, using: continuationResumer)
       }
       #endif
-      self._completions.removeAll(keepingCapacity: true)
+      completions.removeAll(keepingCapacity: true)
       #endif
 
       var moreJobsQueued = false
@@ -696,6 +711,10 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     guard !moreJobsQueued else {
       // There are more jobs queued without a deadline so we just need to select all events again
       return .now
+    }
+    guard nextContinuousClockDeadline != nil || nextSuspendingClockDeadline != nil else {
+      // Nothing is scheduled so we block without reading the clocks.
+      return .block
     }
 
     let continuousClockNow = ContinuousClock.now
@@ -1008,32 +1027,12 @@ extension PThreadExecutor {
     // If we are on the executor we can submit right away otherwise
     // we have to enqueue it and let the next tick pick it up.
     if self.onExecutor {
-      self.insertInFlightIOOperation(resumption, id: id)
-      self._backend.submit(operation, id: id)
+      self.threadBoundState.submit(operation, id: id, resuming: resumption)
     } else {
       self.enqueue(.submit(operation, id, resumption))
     }
 
     return id
-  }
-
-  /// Stores the new in-flight operation.
-  ///
-  /// - Parameters:
-  ///   - resumption: What to resume once the operation completes.
-  ///   - id: The identity of the operation.
-  private func insertInFlightIOOperation(
-    _ resumption: consuming Resumption,
-    id: IOOperationID
-  ) {
-    // There is no more room in the dictionary so we have to grow it.
-    if self.inFlightIOOperations.isFull {
-      self.inFlightIOOperations.reserveCapacity(2 * self.inFlightIOOperations.capacity)
-    }
-    let rejected = self.inFlightIOOperations.insertValue(resumption, forKey: id)
-    guard case .none = consume rejected else {
-      fatalError("An operation was submitted with the identity of one that is still in flight")
-    }
   }
 
   /// Hands the work to the executor's thread.
@@ -1050,11 +1049,10 @@ extension PThreadExecutor {
   internal func cancel(_ id: IOOperationID) {
     // If we are on the executor and the operation reached the backend we can
     // cancel right away. Otherwise we have to enqueue it and let the next tick pick it up.
-    if self.onExecutor && self.inFlightIOOperations.containsKey(id) {
-      self._backend.cancel(id)
-    } else {
-      self.enqueue(.cancel(id))
+    if self.onExecutor && self.threadBoundState.cancelIfInFlight(id) {
+      return
     }
+    self.enqueue(.cancel(id))
   }
 
   /// Escalates the priority of the operation with the given identity.
@@ -1078,18 +1076,56 @@ extension PThreadExecutor {
 extension PThreadExecutor {
   /// Submits the I/O commands that other threads enqueued over to this thread.
   private func submitIOCommands() {
-    // The commands are applied in the order they were enqueued.
-    while let submitted = self.nextSubmittedIOCommands.popFirst() {
+    self.threadBoundState.applySubmittedIOCommands()
+  }
+}
+
+@available(anyAppleOS 27.0, *)
+extension PThreadExecutor.ThreadBoundState {
+  /// Submits the operation to the backend and holds on to what to resume once it completes.
+  ///
+  /// - Parameters:
+  ///   - operation: The operation to perform.
+  ///   - id: The identity of the operation.
+  ///   - resumption: What to resume once the operation completes.
+  fileprivate mutating func submit(
+    _ operation: IOOperation,
+    id: IOOperationID,
+    resuming resumption: consuming PThreadExecutor.Resumption
+  ) {
+    // There is no more room in the dictionary so we have to grow it.
+    if self._inFlightIOOperations.isFull {
+      self._inFlightIOOperations.reserveCapacity(2 * self._inFlightIOOperations.capacity)
+    }
+    let rejected = self._inFlightIOOperations.insertValue(resumption, forKey: id)
+    guard case .none = consume rejected else {
+      fatalError("An operation was submitted with the identity of one that is still in flight")
+    }
+    self._backend.submit(operation, id: id)
+  }
+
+  /// Cancels the operation with the given identity if it reached the backend and has not completed.
+  ///
+  /// - Parameter id: The identity of the operation.
+  /// - Returns: Whether the operation was in flight.
+  fileprivate mutating func cancelIfInFlight(_ id: IOOperationID) -> Bool {
+    guard self._inFlightIOOperations.containsKey(id) else {
+      return false
+    }
+    self._backend.cancel(id)
+    return true
+  }
+
+  /// Applies the I/O commands that other threads enqueued, in the order they were enqueued.
+  fileprivate mutating func applySubmittedIOCommands() {
+    while let submitted = self._nextSubmittedIOCommands.popFirst() {
       switch consume submitted {
       case .submit(let operation, let id, let resumption):
-        self.insertInFlightIOOperation(resumption, id: id)
-        self._backend.submit(operation, id: id)
+        self.submit(operation, id: id, resuming: resumption)
       case .cancel(let id):
         // A cancellation can arrive after its operation completed
         // so we filter out anything that is no longer in-flight.
-        if self.inFlightIOOperations.containsKey(id) {
-          self._backend.cancel(id)
-        }
+        _ = self.cancelIfInFlight(id)
       }
     }
   }

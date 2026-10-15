@@ -216,6 +216,13 @@ enum PThread {
     return pthread_self()
   }
 
+  /// An identity of the calling thread that fits into an atomic.
+  static var currentThreadIdentity: UInt {
+    let thread = pthread_self()
+    assert(MemoryLayout.size(ofValue: thread) == MemoryLayout<UInt>.size)
+    return withUnsafeBytes(of: thread) { $0.load(as: UInt.self) }
+  }
+
   static func compareThreads(_ lhs: PThread.ThreadHandle, _ rhs: PThread.ThreadHandle) -> Bool {
     #if os(WASI)
     return lhs == rhs
