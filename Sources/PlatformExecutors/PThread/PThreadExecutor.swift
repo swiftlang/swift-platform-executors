@@ -130,7 +130,12 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     fileprivate var _nextSubmittedIOCommands = UniqueDeque<SubmittedIOCommand>()
 
     /// The backing storage of the in-flight I/O operations.
-    fileprivate var _inFlightIOOperations = UniqueDictionary<IOOperationID, Resumption>()
+    ///
+    /// This is a `RigidDictionary`, since a `UniqueDictionary` shrinks when operations complete and has to
+    /// grow again when the next ones are submitted.
+    fileprivate var _inFlightIOOperations = RigidDictionary<IOOperationID, Resumption>(
+      capacity: IOOperation.reservedCapacity
+    )
     #endif
 
     fileprivate init(_nextExecutedJobs: consuming ContiguousArray<UnownedJob>) {
@@ -186,7 +191,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   }
 
   /// The currently inflight I/O operations.
-  private var inFlightIOOperations: UniqueDictionary<IOOperationID, Resumption> {
+  private var inFlightIOOperations: RigidDictionary<IOOperationID, Resumption> {
     _read {
       assert(self.onExecutor)
       yield self._threadBoundState._inFlightIOOperations
@@ -218,7 +223,11 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   /// The results of the operations that the backend handed over in this tick.
   ///
   /// - Note: This may only be used on the executor's thread.
-  private var _completions: [(IOOperationID, Result<Int, IOError>)] = []
+  private var _completions: [(IOOperationID, Result<Int, IOError>)] = {
+    var completions = [(IOOperationID, Result<Int, IOError>)]()
+    completions.reserveCapacity(IOOperation.reservedCapacity)
+    return completions
+  }()
   #endif
 
   /// The amount of jobs to process in a single executor tick.
@@ -993,19 +1002,32 @@ extension PThreadExecutor {
     // If we are on the executor we can submit right away otherwise
     // we have to enqueue it and let the next tick pick it up.
     if self.onExecutor {
-      let rejected = self.inFlightIOOperations.insertValue(
-        resumption,
-        forKey: id
-      )
-      guard case .none = consume rejected else {
-        fatalError("An operation was submitted with the identity of one that is still in flight")
-      }
+      self.insertInFlightIOOperation(resumption, id: id)
       self._backend.submit(operation, id: id)
     } else {
       self.enqueue(.submit(operation, id, resumption))
     }
 
     return id
+  }
+
+  /// Stores the new in-flight operation.
+  ///
+  /// - Parameters:
+  ///   - resumption: What to resume once the operation completes.
+  ///   - id: The identity of the operation.
+  private func insertInFlightIOOperation(
+    _ resumption: consuming Resumption,
+    id: IOOperationID
+  ) {
+    // There is no more room in the dictionary so we have to grow it.
+    if self.inFlightIOOperations.isFull {
+      self.inFlightIOOperations.reserveCapacity(2 * self.inFlightIOOperations.capacity)
+    }
+    let rejected = self.inFlightIOOperations.insertValue(resumption, forKey: id)
+    guard case .none = consume rejected else {
+      fatalError("An operation was submitted with the identity of one that is still in flight")
+    }
   }
 
   /// Hands the work to the executor's thread.
@@ -1054,13 +1076,7 @@ extension PThreadExecutor {
     while let submitted = self.nextSubmittedIOCommands.popFirst() {
       switch consume submitted {
       case .submit(let operation, let id, let resumption):
-        let rejected = self.inFlightIOOperations.insertValue(
-          resumption,
-          forKey: id
-        )
-        guard case .none = consume rejected else {
-          fatalError("An operation was submitted with the identity of one that is still in flight")
-        }
+        self.insertInFlightIOOperation(resumption, id: id)
         self._backend.submit(operation, id: id)
       case .cancel(let id):
         // A cancellation can arrive after its operation completed
