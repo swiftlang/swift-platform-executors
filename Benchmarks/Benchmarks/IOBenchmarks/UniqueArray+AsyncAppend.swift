@@ -12,17 +12,11 @@
 
 import BasicContainers
 
+// TODO: Should be removed once we get stdlib APIs that offer `OutputSpan` in async contexts.
 @available(anyAppleOS 27.0, *)
 extension UniqueArray where Element: ~Copyable {
   /// Appends the elements that a closure initializes in an output span, which it can do across suspension
   /// points.
-  ///
-  /// This is the `async` counterpart of `append(addingCount:initializingWith:)`. If the array does not have
-  /// room for `newItemCount` more elements, it grows its storage first. The array keeps every element that the
-  /// closure initialized, even if it throws.
-  ///
-  /// The output span covers memory of the array, which stays valid while the closure is suspended since this
-  /// method holds exclusive access to the array until it returns.
   ///
   /// - Parameters:
   ///   - newItemCount: The maximum number of elements to append.
@@ -42,9 +36,6 @@ extension UniqueArray where Element: ~Copyable {
     return try await initializer(&span)
   }
 
-  /// Makes room for `newItemCount` more elements and returns the memory for them.
-  ///
-  /// The memory stays valid until the array is mutated.
   private mutating func reserveFreeCapacity(_ newItemCount: Int) -> UnsafeMutableBufferPointer<Element> {
     precondition(newItemCount >= 0, "Cannot add a negative number of items")
     self.reserveCapacity(self.count + newItemCount)
@@ -55,7 +46,6 @@ extension UniqueArray where Element: ~Copyable {
     }
   }
 
-  /// Adds elements that were initialized in the memory after the last element to the array.
   private mutating func addInitializedCount(_ initializedCount: Int) {
     self.edit { span in
       span.withUnsafeMutableBufferPointer { _, count in
@@ -69,8 +59,6 @@ extension UniqueArray where Element: ~Copyable {
 extension UniqueArray<UInt8> {
   /// Appends the bytes that a closure initializes in an output raw span, which it can do across suspension
   /// points.
-  ///
-  /// This is the raw counterpart of ``append(addingCount:initializingWith:)``, for reading into the array.
   ///
   /// - Parameters:
   ///   - newByteCount: The maximum number of bytes to append.

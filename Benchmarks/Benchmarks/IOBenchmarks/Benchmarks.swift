@@ -184,4 +184,104 @@ let benchmarks: @Sendable () -> Void = {
       )
     }
   }
+
+  ioBenchmark(
+    "FileSequentialWrite",
+    configuration: .init(
+      metrics: defaultMetrics,
+      scalingFactor: .kilo,
+      maxDuration: .seconds(10_000_000),
+      maxIterations: 5
+    )
+  ) { benchmark, ioBackend in
+    guard #available(anyAppleOS 27.0, *) else {
+      fatalError("The file sequential write benchmark requires the I/O APIs.")
+    }
+    try await runFileSequentialWrite(
+      numberOfChunks: benchmark.scaledIterations.upperBound,
+      ioBackend: ioBackend,
+      benchmark: benchmark
+    )
+  }
+
+  ioBenchmark(
+    "FileSequentialRead",
+    configuration: .init(
+      metrics: defaultMetrics,
+      scalingFactor: .kilo,
+      maxDuration: .seconds(10_000_000),
+      maxIterations: 5
+    )
+  ) { benchmark, ioBackend in
+    guard #available(anyAppleOS 27.0, *) else {
+      fatalError("The file sequential read benchmark requires the I/O APIs.")
+    }
+    try await runFileSequentialRead(
+      numberOfChunks: benchmark.scaledIterations.upperBound,
+      ioBackend: ioBackend,
+      benchmark: benchmark
+    )
+  }
+
+  ioBenchmark(
+    "FileSmallReads",
+    configuration: .init(
+      metrics: defaultMetrics,
+      scalingFactor: .kilo,
+      maxDuration: .seconds(10_000_000),
+      maxIterations: 5
+    )
+  ) { benchmark, ioBackend in
+    guard #available(anyAppleOS 27.0, *) else {
+      fatalError("The file small reads benchmark requires the I/O APIs.")
+    }
+    try await runFileSmallReads(
+      numberOfReads: benchmark.scaledIterations.upperBound,
+      ioBackend: ioBackend,
+      benchmark: benchmark
+    )
+  }
+
+  ioBenchmark(
+    "FileOpenClose",
+    configuration: .init(
+      metrics: defaultMetrics,
+      scalingFactor: .kilo,
+      maxDuration: .seconds(10_000_000),
+      maxIterations: 5
+    )
+  ) { benchmark, ioBackend in
+    guard #available(anyAppleOS 27.0, *) else {
+      fatalError("The file open and close benchmark requires the I/O APIs.")
+    }
+    try await runFileOpenClose(
+      numberOfFiles: benchmark.scaledIterations.upperBound,
+      ioBackend: ioBackend,
+      benchmark: benchmark
+    )
+  }
+
+  for (tasks, blockingPoolSize, poolSize) in [(16, 4, 1), (256, 4, 1), (256, 16, 1), (256, 4, 4), (256, 9, 9)] {
+    ioBenchmark(
+      "FileConcurrentReads\(tasks)TasksBlockingPoolSize\(blockingPoolSize)\(poolSize > 1 ? "PoolSize\(poolSize)" : "")",
+      configuration: .init(
+        metrics: defaultMetrics,
+        scalingFactor: .one,
+        maxDuration: .seconds(10_000_000),
+        maxIterations: 5
+      )
+    ) { benchmark, ioBackend in
+      guard #available(anyAppleOS 27.0, *) else {
+        fatalError("The file benchmarks require the I/O APIs.")
+      }
+      try await runFileConcurrentReads(
+        tasks: tasks,
+        readsPerTask: 100,
+        poolSize: poolSize,
+        blockingPoolSize: blockingPoolSize,
+        ioBackend: ioBackend,
+        benchmark: benchmark
+      )
+    }
+  }
 }

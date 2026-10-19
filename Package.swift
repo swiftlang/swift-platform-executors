@@ -101,6 +101,11 @@ let package = Package(
       dependencies: [
         .target(name: "PlatformExecutors"),
         .target(name: "CPlatformExecutors"),
+        .product(
+          name: "BasicContainers",
+          package: "swift-collections",
+          condition: .when(traits: ["ExperimentalIO"])
+        ),
       ]
     ),
 
@@ -125,6 +130,18 @@ let package = Package(
         .target(name: "PlatformExecutors")
       ],
       path: "Examples/TCPEcho"
+    ),
+    .executableTarget(
+      name: "FileExample",
+      dependencies: [
+        .target(name: "PlatformExecutors"),
+        .product(
+          name: "BasicContainers",
+          package: "swift-collections",
+          condition: .when(traits: ["ExperimentalIO"])
+        ),
+      ],
+      path: "Examples/File"
     ),
   ]
 )
