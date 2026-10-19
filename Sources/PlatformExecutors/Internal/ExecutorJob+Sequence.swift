@@ -29,3 +29,22 @@ extension ExecutorJob {
     }
   }
 }
+
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+extension ExecutorJob {
+  /// The address of the next job in the inbox of an executor, or zero for the last one.
+  var inboxNext: UInt {
+    get {
+      return unsafe withUnsafeExecutorPrivateData {
+        return unsafe $0.assumingMemoryBound(to: UInt.self)[1]
+      }
+    }
+    set {
+      return unsafe withUnsafeExecutorPrivateData {
+        unsafe $0.withMemoryRebound(to: UInt.self) {
+          unsafe $0[1] = newValue
+        }
+      }
+    }
+  }
+}

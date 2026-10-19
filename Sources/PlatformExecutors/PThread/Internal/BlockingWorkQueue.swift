@@ -63,7 +63,9 @@ final class BlockingWorkQueue: @unchecked Sendable {
     var order = PriorityQueue<Key>(compare: Key.runsBefore)
 
     /// The operations that wait to be run, by identity.
-    var pending = UniqueDictionary<UInt64, Entry>()
+    ///
+    /// This is a `RigidDictionary`, since a `UniqueDictionary` shrinks when the queue drains.
+    var pending = RigidDictionary<UInt64, Entry>(capacity: IOOperation.reservedCapacity)
 
     /// Whether the executor is stopping.
     var isStopping = false
@@ -124,6 +126,10 @@ final class BlockingWorkQueue: @unchecked Sendable {
     var entry = Optional(Entry(operation: operation, priority: priority, continuation: continuation))
     self.state.withLockAndSignalIfNeeded { state in
       state.order.push(Key(priority: priority, id: id))
+      // There is no more room in the dictionary so we have to grow it.
+      if state.pending.isFull {
+        state.pending.reserveCapacity(2 * state.pending.capacity)
+      }
       // The force-unwrap is safe we just need call-once closures.
       let rejected = state.pending.insertValue(entry.take()!, forKey: id)
       guard case .none = consume rejected else {

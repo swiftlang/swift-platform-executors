@@ -92,13 +92,6 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     /// The I/O work that other threads handed to the executor's thread.
     var submittedIOCommands = UniqueDeque<SubmittedIOCommand>()
     #endif
-    /// This is the queue of enqueued jobs that we have to execute in the order they got enqueued.
-    var jobs: NonCopyablePriorityQueue<UnownedJob> = {
-      guard #available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *) else {
-        return .init(compare: compareJobsByPriorityAndID)
-      }
-      return .init(compare: compareJobsByPriorityAndSequenceNumber)
-    }()
     /// This is the queue of enqueued jobs for the continuous clock.
     var continuousClockJobs: NonCopyablePriorityQueue<(ContinuousClock.Instant, UnownedJob)> = {
       guard #available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *) else {
@@ -122,6 +115,14 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
 
     /// The backing storage of the next executed jobs.
     fileprivate var _nextExecutedJobs: ContiguousArray<UnownedJob>
+
+    /// The jobs that were drained from the inbox, in the order they have to be executed in.
+    fileprivate var _jobs: NonCopyablePriorityQueue<UnownedJob> = {
+      guard #available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *) else {
+        return .init(compare: compareJobsByPriorityAndID)
+      }
+      return .init(compare: compareJobsByPriorityAndSequenceNumber)
+    }()
 
     #if ExperimentalIO && !os(WASI)
     /// The backing storage of the next submitted I/O commands.
@@ -176,6 +177,18 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     }
   }
 
+  /// The jobs that were drained from the inbox and wait to be executed.
+  private var jobs: NonCopyablePriorityQueue<UnownedJob> {
+    _read {
+      assert(self.onExecutor)
+      yield self._threadBoundState._jobs
+    }
+    _modify {
+      assert(self.onExecutor)
+      yield &self._threadBoundState._jobs
+    }
+  }
+
   /// The jobs that are next in line to be executed.
   private var nextExecutedJobs: ContiguousArray<UnownedJob> {
     _read {
@@ -213,6 +226,16 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     }
   }
   #endif
+
+  /// The inbox that other threads put jobs into without taking a lock.
+  ///
+  /// This is a stack of the jobs themselves, newest first, that the executor's thread takes in one go. A value of zero
+  /// means that it is empty. ``inboxSleeping`` means that it is empty and that the executor's thread is about to
+  /// wait, or is waiting, on its backend and must be woken up by whoever puts the next job into it.
+  private let inbox = Atomic<UInt>(0)
+
+  /// The marker in ``inbox`` for an executor that waits. No job can have this address.
+  private static var inboxSleeping: UInt { 1 }
 
   /// The next sequence number of an enqueued jobs.
   private let sequenceNumber = Atomic<UInt64>(0)
@@ -383,7 +406,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
 
   deinit {
     precondition(
-      self._multiThreadedState.withLock { $0.jobs.queue.isEmpty },
+      self.inbox.load(ordering: .relaxed) <= Self.inboxSleeping,
       "PThreadExecutor had left over jobs when deiniting."
     )
     #if ExperimentalIO && !os(WASI)
@@ -403,9 +426,48 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
         ).newValue
     }
 
+    // The job is its own node.
     let unownedJob = UnownedJob(job)
-    self.modifyMultiThreadedStateAndWakeUpIfNeeded { state in
-      state.jobs.push(unownedJob)
+    let address = unsafeBitCast(unownedJob, to: UInt.self)
+    var head = self.inbox.load(ordering: .relaxed)
+    while true {
+      var node = ExecutorJob(unownedJob)
+      node.inboxNext = head == Self.inboxSleeping ? 0 : head
+      // The release publishes the job, including the link to the next one,
+      // to the executor's thread, which acquires it when it drains the inbox.
+      // The jobs of other producers that this one links to are published
+      // by their own compare-exchanges.
+      let (exchanged, original) = self.inbox.compareExchange(
+        expected: head,
+        desired: address,
+        ordering: .acquiringAndReleasing
+      )
+      if exchanged {
+        break
+      }
+      head = original
+    }
+
+    // Only the first job that arrives while the executor waits has to wake it.
+    if head == Self.inboxSleeping {
+      // Nothing we can do really if we fail to wake the backend
+      try? Backend.wakeup(self.wakeupHandle)
+    }
+  }
+
+  /// Moves the jobs that other threads put into the inbox over to the executor's queue of jobs.
+  private func drainInbox() {
+    // The acquire makes the jobs that the producers released visible.
+    // There is nothing to publish to the producers, which only ever look at
+    // the value of the inbox.
+    var cursor = self.inbox.exchange(0, ordering: .acquiring)
+    guard cursor > Self.inboxSleeping else {
+      return
+    }
+    while cursor != 0 {
+      let job = unsafeBitCast(cursor, to: UnownedJob.self)
+      cursor = ExecutorJob(job).inboxNext
+      self.jobs.push(job)
     }
   }
 
@@ -544,13 +606,6 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
       try self._backend.wait(strategy: strategy)
       #endif
 
-      // Our backend unblocked and we are going to pop some jobs.
-      // From here until the queue runs empty another thread that enqueues
-      // one does not have to wake the backend.
-      self._multiThreadedState.withLock {
-        $0.pendingJobPop = true
-      }
-
       #if ExperimentalIO
       // Resuming a submitter runs its continuation which can lead to another
       // enqueue. In the future, we might even run the continuations inline by
@@ -574,8 +629,15 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
       // multiple times without blocking on the selector if there are many jobs
       // to processes or jobs are enqueued during a tick.
       while true {
+        // Jobs that other threads enqueued without taking the lock.
+        self.drainInbox()
+
         (stopConditionVariable, moreJobsQueued, nextContinuousClockDeadline, nextSuspendingClockDeadline) = self
           ._multiThreadedState.withLock { state in
+            // From here until the queues run empty another thread that enqueues
+            // a job with a deadline or an I/O command does not have to wake the backend.
+            state.pendingJobPop = true
+
             #if ExperimentalIO && !os(WASI)
             // We got some I/O commands that we should apply.
             swap(&state.submittedIOCommands, &self.nextSubmittedIOCommands)
@@ -589,10 +651,9 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
             // We got some jobs that we should execute. Let's copy them over so we can
             // give up the lock.
             let (moreJobsQueued, nextContinuousClockDeadline, nextSuspendingClockDeadline) = Self._popJobsLocked(
-              jobs: &state.jobs,
+              threadBoundState: &self.threadBoundState,
               continuousClockJobs: &state.continuousClockJobs,
               suspendingClockJobs: &state.suspendingClockJobs,
-              jobsCopy: &self.nextExecutedJobs,
               batchSize: Self.jobsBatchSize
             )
 
@@ -638,20 +699,32 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
         nextContinuousClockDeadline: nextContinuousClockDeadline,
         nextSuspendingClockDeadline: nextSuspendingClockDeadline
       )
+
+      // Announce that we wait unless a job arrived in the meantime. A thread
+      // that enqueues a job after this sees the marker and wakes us, and one
+      // that did so before makes the exchange fail. The acquire keeps the wait
+      // from starting before the announcement took effect.
+      if case .now = strategy {
+      } else if !self.inbox.compareExchange(
+        expected: 0,
+        desired: Self.inboxSleeping,
+        ordering: .acquiringAndReleasing
+      ).exchanged {
+        strategy = .now
+      }
     }
   }
 
   private static func _popJobsLocked(
-    jobs: inout NonCopyablePriorityQueue<UnownedJob>,
+    threadBoundState: inout ThreadBoundState,
     continuousClockJobs: inout NonCopyablePriorityQueue<(ContinuousClock.Instant, UnownedJob)>,
     suspendingClockJobs: inout NonCopyablePriorityQueue<(SuspendingClock.Instant, UnownedJob)>,
-    jobsCopy: inout ContiguousArray<UnownedJob>,
     batchSize: Int
   ) -> (Bool, ContinuousClock.Instant?, SuspendingClock.Instant?) {
-    // We expect empty jobsCopy, to put a new batch of tasks into
-    assert(jobsCopy.isEmpty)
+    // We expect empty threadBoundState._nextExecutedJobs, to put a new batch of tasks into
+    assert(threadBoundState._nextExecutedJobs.isEmpty)
 
-    var moreJobsToConsider = !jobs.queue.isEmpty
+    var moreJobsToConsider = !threadBoundState._jobs.queue.isEmpty
     var moreContinuousClockJobsToConsider = !continuousClockJobs.queue.isEmpty
     var moreSuspendingClockJobsToConsider = !suspendingClockJobs.queue.isEmpty
 
@@ -669,16 +742,20 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     while moreJobsToConsider || moreContinuousClockJobsToConsider || moreSuspendingClockJobsToConsider {
       // We pick one job per iteration of the loop.
       // This prevents one queue starving the other.
-      if moreJobsToConsider, jobsCopy.count < batchSize, let job = jobs.pop() {
-        jobsCopy.append(job)
+      if moreJobsToConsider, threadBoundState._nextExecutedJobs.count < batchSize,
+        let job = threadBoundState._jobs.pop()
+      {
+        threadBoundState._nextExecutedJobs.append(job)
       } else {
         moreJobsToConsider = false
       }
 
-      if moreContinuousClockJobsToConsider, jobsCopy.count < batchSize, let job = continuousClockJobs.peek() {
+      if moreContinuousClockJobsToConsider, threadBoundState._nextExecutedJobs.count < batchSize,
+        let job = continuousClockJobs.peek()
+      {
         if continuousClockNow.duration(to: job.0) <= .nanoseconds(0) {
           _ = continuousClockJobs.pop()
-          jobsCopy.append(job.1)
+          threadBoundState._nextExecutedJobs.append(job.1)
         } else {
           nextContinuousClockDeadline = job.0
           moreContinuousClockJobsToConsider = false
@@ -687,10 +764,12 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
         moreContinuousClockJobsToConsider = false
       }
 
-      if moreSuspendingClockJobsToConsider, jobsCopy.count < batchSize, let job = suspendingClockJobs.peek() {
+      if moreSuspendingClockJobsToConsider, threadBoundState._nextExecutedJobs.count < batchSize,
+        let job = suspendingClockJobs.peek()
+      {
         if suspendingClockNow.duration(to: job.0) <= .nanoseconds(0) {
           _ = suspendingClockJobs.pop()
-          jobsCopy.append(job.1)
+          threadBoundState._nextExecutedJobs.append(job.1)
         } else {
           nextSuspendingClockDeadline = job.0
           moreSuspendingClockJobsToConsider = false
@@ -700,7 +779,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
       }
     }
 
-    return (!jobs.queue.isEmpty, nextContinuousClockDeadline, nextSuspendingClockDeadline)
+    return (!threadBoundState._jobs.queue.isEmpty, nextContinuousClockDeadline, nextSuspendingClockDeadline)
   }
 
   private func currentIOWaitStrategy(
