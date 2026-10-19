@@ -59,10 +59,10 @@ struct KQueueReadinessBackend: ~Copyable {
   var wakeupHandle: WakeupHandle {
     WakeupHandle(kqueueFD: self.kqueueFD)
   }
-  /// The next continuous clock timer to avoid re-arming the timer if possible.
-  fileprivate var nextContinuousClockTimer: ContinuousClock.Instant?
-  /// The next suspending clock timer to avoid re-arming the timer if possible.
-  fileprivate var nextSuspendingClockTimer: SuspendingClock.Instant?
+  /// The deadline that the continuous clock timer is armed for, to avoid re-arming it for a later one.
+  fileprivate var armedContinuousClockDeadline: ContinuousClock.Instant?
+  /// The deadline that the suspending clock timer is armed for, to avoid re-arming it for a later one.
+  fileprivate var armedSuspendingClockDeadline: SuspendingClock.Instant?
 
   #if ExperimentalIO
   /// The operations that are waiting for their file descriptor to become ready.
@@ -225,11 +225,11 @@ struct KQueueReadinessBackend: ~Copyable {
       // Timer event - reset the corresponding timer state
       switch Int(event.ident) {
       case 1:
-        // Continuous clock timer fired
-        self.nextContinuousClockTimer = nil
+        // The continuous clock timer fired so it is not armed anymore.
+        self.armedContinuousClockDeadline = nil
       case 2:
-        // Suspending clock timer fired
-        self.nextSuspendingClockTimer = nil
+        // The suspending clock timer fired so it is not armed anymore.
+        self.armedSuspendingClockDeadline = nil
       default:
         fatalError("Unknown timer identifier in kqueue event: \(event.ident)")
       }
@@ -259,9 +259,9 @@ struct KQueueReadinessBackend: ~Copyable {
     // Set up continuous clock timer (ident = 1)
     if let continuousClockInstant {
       let shouldSetTimer: Bool
-      if let nextContinuousClockTimer = self.nextContinuousClockTimer {
+      if let armedContinuousClockDeadline = self.armedContinuousClockDeadline {
         // Only set timer if new deadline is earlier
-        shouldSetTimer = continuousClockInstant < nextContinuousClockTimer
+        shouldSetTimer = continuousClockInstant < armedContinuousClockDeadline
       } else {
         shouldSetTimer = true
       }
@@ -273,16 +273,16 @@ struct KQueueReadinessBackend: ~Copyable {
         let nanoseconds =
           Int(duration.components.seconds) * 1_000_000_000 + Int(duration.components.attoseconds / 1_000_000_000)
         self.pendingChanges.append(Self.timerEvent(ident: 1, nanoseconds: nanoseconds))
-        self.nextContinuousClockTimer = continuousClockInstant
+        self.armedContinuousClockDeadline = continuousClockInstant
       }
     }
 
     // Set up suspending clock timer (ident = 2)
     if let suspendingClockInstant {
       let shouldSetTimer: Bool
-      if let nextSuspendingClockTimer = self.nextSuspendingClockTimer {
+      if let armedSuspendingClockDeadline = self.armedSuspendingClockDeadline {
         // Only set timer if new deadline is earlier
-        shouldSetTimer = suspendingClockInstant < nextSuspendingClockTimer
+        shouldSetTimer = suspendingClockInstant < armedSuspendingClockDeadline
       } else {
         shouldSetTimer = true
       }
@@ -294,7 +294,7 @@ struct KQueueReadinessBackend: ~Copyable {
         let nanoseconds =
           Int(duration.components.seconds) * 1_000_000_000 + Int(duration.components.attoseconds / 1_000_000_000)
         self.pendingChanges.append(Self.timerEvent(ident: 2, nanoseconds: nanoseconds))
-        self.nextSuspendingClockTimer = suspendingClockInstant
+        self.armedSuspendingClockDeadline = suspendingClockInstant
       }
     }
   }

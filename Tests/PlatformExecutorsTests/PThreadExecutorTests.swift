@@ -114,6 +114,73 @@ struct PThreadExecutorTests {
     }
   }
 
+  @Test(.timeLimit(.minutes(1)), arguments: PThreadIOBackend.tested)
+  @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+  func shortSleepsWhoseDeadlinePassesWhileTheExecutorPreparesToWait(ioBackend: PThreadIOBackend) async {
+    await PThreadTaskExecutor.withExecutor(name: "Test", poolSize: 1, ioBackend: ioBackend) { executor in
+      await withTaskExecutorPreference(executor) {
+        await withTaskGroup(of: Void.self) { group in
+          for _ in 0..<16 {
+            group.addTask {
+              for _ in 0..<500 {
+                try? await Task.sleep(for: .microseconds(100))
+              }
+            }
+          }
+        }
+      }
+
+      await withTaskExecutorPreference(executor) {
+        for _ in 0..<5_000 {
+          try? await Task.sleep(for: .microseconds(20))
+        }
+      }
+    }
+  }
+
+  /// A sleep with an earlier deadline must wake an executor that already waits for a later one.
+  @Test(.timeLimit(.minutes(1)), arguments: PThreadIOBackend.tested)
+  @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+  func anEarlierSleepFiresWhileALaterOneIsPending(ioBackend: PThreadIOBackend) async {
+    await Self.anEarlierSleepFiresWhileALaterOneIsPending(clock: ContinuousClock(), ioBackend: ioBackend)
+    await Self.anEarlierSleepFiresWhileALaterOneIsPending(clock: SuspendingClock(), ioBackend: ioBackend)
+  }
+
+  @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+  private static func anEarlierSleepFiresWhileALaterOneIsPending<C: Clock>(
+    clock: C,
+    ioBackend: PThreadIOBackend
+  ) async where C.Duration == Duration {
+    await PThreadTaskExecutor.withExecutor(name: "Test", poolSize: 1, ioBackend: ioBackend) { executor in
+      let later = Task(executorPreference: executor) {
+        try? await Task.sleep(for: .seconds(30), clock: clock)
+      }
+      // Give the executor time to wait for the later deadline.
+      try? await Task.sleep(for: .milliseconds(200))
+      let start = ContinuousClock.now
+      await Task(executorPreference: executor) {
+        try? await Task.sleep(for: .milliseconds(50), clock: clock)
+      }.value
+      #expect(start.duration(to: .now) < .seconds(10))
+      later.cancel()
+      await later.value
+    }
+  }
+
+  /// Once a timer fired, the next sleeps must arm it again.
+  @Test(.timeLimit(.minutes(1)), arguments: PThreadIOBackend.tested)
+  @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+  func sleepsOneAfterAnotherEachFire(ioBackend: PThreadIOBackend) async {
+    await PThreadTaskExecutor.withExecutor(name: "Test", poolSize: 1, ioBackend: ioBackend) { executor in
+      await withTaskExecutorPreference(executor) {
+        for _ in 0..<5 {
+          try? await Task.sleep(for: .milliseconds(20), clock: ContinuousClock())
+          try? await Task.sleep(for: .milliseconds(20), clock: SuspendingClock())
+        }
+      }
+    }
+  }
+
   @Test
   @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
   func mainExecutor() async throws {

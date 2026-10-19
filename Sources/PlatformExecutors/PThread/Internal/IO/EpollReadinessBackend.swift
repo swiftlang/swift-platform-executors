@@ -63,12 +63,12 @@ struct EpollReadinessBackend: ~Copyable {
   fileprivate let eventFD: CInt
   /// The monotonic timer file descriptor to back the suspending clock.
   fileprivate let monotonicTimerFD: CInt
-  /// The boottime timer file descriptor to back the suspending clock.
+  /// The boottime timer file descriptor to back the continuous clock.
   fileprivate let boottimeTimerFD: CInt
-  /// The next continuous clock timer to avoid re-arming the timer if possible.
-  fileprivate var nextMonotonicClockTimer: ContinuousClock.Instant?
-  /// The next suspending clock timer to avoid re-arming the timer if possible.
-  fileprivate var nextBoottimelockTimer: SuspendingClock.Instant?
+  /// The deadline that the boottime timer is armed for, to avoid re-arming it for a later one.
+  fileprivate var armedContinuousClockDeadline: ContinuousClock.Instant?
+  /// The deadline that the monotonic timer is armed for, to avoid re-arming it for a later one.
+  fileprivate var armedSuspendingClockDeadline: SuspendingClock.Instant?
 
   #if ExperimentalIO
   /// The operations that are waiting for their file descriptor to become ready.
@@ -175,46 +175,43 @@ struct EpollReadinessBackend: ~Copyable {
     case .now:
       timeout = 0
     case .blockUntilTimeout(let continuousClockInstant, let suspendingClockInstant):
+      var hasDeadlinePassed = false
       // The continuous clock maps to the boottime clock
-      func setTimer(instant: ContinuousClock.Instant) throws {
-        var ts = itimerspec()
-        ts.it_value = timespec(duration: ContinuousClock.now.duration(to: instant))
-        try TimerFileDescriptor.timerfd_settime(fd: self.boottimeTimerFD, flags: 0, newValue: &ts, oldValue: nil)
-      }
-      // The suspending clock maps to the monotonic clock
-      func setTimer(instant: SuspendingClock.Instant) throws {
-        var ts = itimerspec()
-        ts.it_value = timespec(duration: SuspendingClock.now.duration(to: instant))
-        try TimerFileDescriptor.timerfd_settime(fd: self.monotonicTimerFD, flags: 0, newValue: &ts, oldValue: nil)
-      }
-      // Only call timerfd_settime if we're not already scheduled one that will cover it.
       if let continuousClockInstant {
-        if let nextMonotonicClockTimer = self.nextMonotonicClockTimer {
-          if continuousClockInstant < nextMonotonicClockTimer {
-            try setTimer(instant: continuousClockInstant)
-          }
-        } else {
-          try setTimer(instant: continuousClockInstant)
+        let remaining = ContinuousClock.now.duration(to: continuousClockInstant)
+        if remaining <= .zero {
+          hasDeadlinePassed = true
+        } else if self.armedContinuousClockDeadline.map({ continuousClockInstant < $0 }) ?? true {
+          try Self.arm(self.boottimeTimerFD, after: remaining)
+          self.armedContinuousClockDeadline = continuousClockInstant
         }
       }
-
-      // Only call timerfd_settime if we're not already scheduled one that will cover it.
+      // The suspending clock maps to the monotonic clock
       if let suspendingClockInstant {
-        if let nextBoottimelockTimer = self.nextBoottimelockTimer {
-          if suspendingClockInstant < nextBoottimelockTimer {
-            try setTimer(instant: suspendingClockInstant)
-          }
-        } else {
-          try setTimer(instant: suspendingClockInstant)
+        let remaining = SuspendingClock.now.duration(to: suspendingClockInstant)
+        if remaining <= .zero {
+          hasDeadlinePassed = true
+        } else if self.armedSuspendingClockDeadline.map({ suspendingClockInstant < $0 }) ?? true {
+          try Self.arm(self.monotonicTimerFD, after: remaining)
+          self.armedSuspendingClockDeadline = suspendingClockInstant
         }
       }
       // The timers wake us up, so we can block until a file descriptor becomes ready.
-      timeout = -1
+      timeout = hasDeadlinePassed ? 0 : -1
     case .block:
       // Specifying -1 blocks until a file descriptor becomes ready
       timeout = -1
     }
     return timeout
+  }
+
+  /// Arms a timer to fire once after the given positive duration.
+  private static func arm(_ timerFD: CInt, after duration: Duration) throws {
+    var ts = itimerspec()
+    // A timespec has nanosecond precision, so a duration below that
+    // would round down to zero, which disarms the timer.
+    ts.it_value = timespec(duration: max(duration, .nanoseconds(1)))
+    try TimerFileDescriptor.timerfd_settime(fd: timerFD, flags: 0, newValue: &ts, oldValue: nil)
   }
 
   /// Waits for events and writes them into the given output span.
@@ -260,8 +257,8 @@ struct EpollReadinessBackend: ~Copyable {
         size: MemoryLayout.size(ofValue: val)
       )
 
-      // Processed the earliest set timer so reset it.
-      self.nextMonotonicClockTimer = nil
+      // The timer fired so it is not armed anymore.
+      self.armedSuspendingClockDeadline = nil
     case self.boottimeTimerFD:
       // Consume event
       var val: UInt64 = 0
@@ -272,8 +269,8 @@ struct EpollReadinessBackend: ~Copyable {
         size: MemoryLayout.size(ofValue: val)
       )
 
-      // Processed the earliest set timer so reset it.
-      self.nextBoottimelockTimer = nil
+      // The timer fired so it is not armed anymore.
+      self.armedContinuousClockDeadline = nil
     default:
       return ReadinessEvent(
         registrationID: epollUserData.registrationID,
