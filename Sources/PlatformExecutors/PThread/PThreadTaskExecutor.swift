@@ -61,6 +61,10 @@ public final class PThreadTaskExecutor: TaskExecutor {
   /// Serializes the creation of the queue that runs blocking file operations.
   private let _blockingQueueCreation = Mutex<Void>(())
   #endif
+  #if ExperimentalIO && !os(WASI)
+  /// Whether the I/O mechanism of the pool's executors performs file operations.
+  internal let performsFileOperations: Bool
+  #endif
 
   /// Creates a new `PThreadTaskExecutor` with the specified pool size and thread naming.
   ///
@@ -89,6 +93,11 @@ public final class PThreadTaskExecutor: TaskExecutor {
     let poolSize = poolSize ?? SystemCoreCount.coreCount
     self.name = "\(name)-size(\(poolSize))"
     precondition(poolSize > 0, "The pool size must be positive")
+    // The default is evaluated once, so that all the executors use the same mechanism.
+    let ioBackend = ioBackend.resolvingPlatformDefault()
+    #if ExperimentalIO && !os(WASI)
+    self.performsFileOperations = ioBackend.performsFileOperations
+    #endif
     #if ExperimentalIO
     self.blockingPoolSize = blockingPoolSize ?? poolSize
     precondition(self.blockingPoolSize > 0, "The blocking pool size must be positive")

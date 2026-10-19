@@ -49,22 +49,10 @@ enum PlatformIOBackend: ~Copyable {
   init(_ configuration: PThreadIOBackend) {
     switch configuration.kind {
     case .platformDefault:
-      #if canImport(Darwin)
-      self = .kqueue(try! KQueueReadinessBackend())
-      #elseif canImport(Glibc)
-      #if ExperimentalIOUring
-      do {
-        self = .ioUring(try IOUringBackend())
-      } catch {
-        // The kernel is too old for io_uring or does not allow it, for
-        // example because of a container's seccomp profile.
-        self = .epoll(try! EpollReadinessBackend())
-      }
-      #else
-      self = .epoll(try! EpollReadinessBackend())
-      #endif
-      #elseif os(WASI)
+      #if os(WASI)
       self = .condition(try! ConditionSelectorBackend())
+      #else
+      self = Self(configuration.resolvingPlatformDefault())
       #endif
     #if canImport(Darwin)
     case .kqueue:

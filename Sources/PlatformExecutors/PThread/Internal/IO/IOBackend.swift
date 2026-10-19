@@ -52,6 +52,9 @@ protocol IOBackend: ~Copyable {
   /// - Returns: The result of the operation, or `nil` if it cannot be performed without waiting.
   static func attempt(_ operation: IOOperation) -> Result<Int, IOError>?
 
+  /// Whether the backend performs file operations.
+  static var performsFileOperations: Bool { get }
+
   /// Submits an operation whose result is reported later.
   ///
   /// - Parameters:
@@ -86,4 +89,11 @@ protocol IOBackend: ~Copyable {
   mutating func wait(strategy: IOWaitStrategy) throws
   #endif
 }
+
+#if ExperimentalIO
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+extension IOBackend where Self: ~Copyable {
+  static var performsFileOperations: Bool { false }
+}
+#endif
 #endif

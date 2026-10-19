@@ -78,6 +78,48 @@ public struct PThreadIOBackend: Sendable, Hashable, CustomStringConvertible {
 }
 
 extension PThreadIOBackend {
+  /// Returns the mechanism that this configuration selects on this system.
+  internal func resolvingPlatformDefault() -> PThreadIOBackend {
+    guard self.kind == .platformDefault else {
+      return self
+    }
+    #if canImport(Darwin)
+    return .kqueue
+    #elseif canImport(Glibc)
+    #if ExperimentalIOUring
+    // The kernel can be too old for io_uring or not allow it, for example because of a container's seccomp
+    // profile. Then we use epoll.
+    if (try? Self.ioUring.checkAvailability()) != nil {
+      return .ioUring
+    }
+    #endif
+    return .epoll
+    #else
+    return self
+    #endif
+  }
+
+  #if ExperimentalIO && !os(WASI)
+  /// Whether the mechanism performs file operations.
+  internal var performsFileOperations: Bool {
+    switch self.kind {
+    case .platformDefault:
+      return false
+    #if canImport(Darwin)
+    case .kqueue:
+      return KQueueReadinessBackend.performsFileOperations
+    #elseif canImport(Glibc)
+    case .epoll:
+      return EpollReadinessBackend.performsFileOperations
+    #if ExperimentalIOUring
+    case .ioUring:
+      return IOUringBackend.performsFileOperations
+    #endif
+    #endif
+    }
+  }
+  #endif
+
   /// Checks that an executor can be created with this mechanism.
   public func checkAvailability() throws {
     #if canImport(Glibc) && ExperimentalIOUring

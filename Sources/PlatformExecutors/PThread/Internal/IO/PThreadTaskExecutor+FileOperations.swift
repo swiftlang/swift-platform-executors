@@ -25,7 +25,7 @@ import Darwin
 
 // MARK: - File operations
 
-/// A pool performs file operations with blocking syscalls on a separate pool of threads.
+/// Depending on the backend either the backend performs the file operations or we fallback to a pool of threads.
 @available(anyAppleOS 27.0, *)
 extension PThreadTaskExecutor: FileOperationScheduler {
   public typealias FileHandle = PThreadFile
@@ -34,7 +34,11 @@ extension PThreadTaskExecutor: FileOperationScheduler {
     path: String,
     configuration: FileOpenConfiguration
   ) async throws(IOError) -> FileHandle {
-    try await FileSyscall.withCPath(path) { path async throws(IOError) -> FileHandle in
+    if self.performsFileOperations {
+      return try await self.next().openFile(path: path, configuration: configuration)
+    }
+
+    return try await FileSyscall.withCPath(path) { path async throws(IOError) -> FileHandle in
       let fileDescriptor = try await self.performBlocking(
         .openFile(
           path: path,
@@ -51,6 +55,10 @@ extension PThreadTaskExecutor: FileOperationScheduler {
     into buffer: inout OutputRawSpan,
     at offset: Int64
   ) async throws(IOError) -> Int {
+    if self.performsFileOperations {
+      return try await self.executors[file.executorIndex].readFile(file, into: &buffer, at: offset)
+    }
+
     // The bytes are read into the free capacity of the buffer.
     let freeCapacity = buffer.withUnsafeMutableBytes { bytes, initializedCount in
       UnsafeMutableRawBufferPointer(rebasing: bytes[initializedCount...])
@@ -69,6 +77,10 @@ extension PThreadTaskExecutor: FileOperationScheduler {
     from buffer: RawSpan,
     at offset: Int64
   ) async throws(IOError) -> Int {
+    if self.performsFileOperations {
+      return try await self.executors[file.executorIndex].writeFile(file, from: buffer, at: offset)
+    }
+
     let bytes = buffer.withUnsafeBytes { $0 }
     return try await self.performBlocking(
       .writeFile(file: file.fileDescriptor, buffer: bytes, offset: offset)
@@ -76,6 +88,9 @@ extension PThreadTaskExecutor: FileOperationScheduler {
   }
 
   public func close(file: consuming FileHandle) async throws(IOError) {
+    if self.performsFileOperations {
+      return try await self.executors[file.executorIndex].closeFile(file)
+    }
     _ = try await self.performBlocking(.close(fileDescriptor: file.fileDescriptor))
   }
 

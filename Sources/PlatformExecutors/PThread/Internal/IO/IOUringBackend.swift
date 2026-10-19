@@ -141,9 +141,25 @@ struct IOUringBackend: ~Copyable {
       return .shutdown(SocketDescriptor(rawValue: socket), how, context: context)
     case .close(let socket):
       return .close(FileDescriptor(rawValue: socket), context: context)
-    case .openFile, .readFile, .writeFile:
-      // The file operations are not performed by the ring yet.
-      fatalError("The io_uring backend does not perform file operations yet")
+    case .openFile(let path, let flags, let permissions):
+      // The ring copies the path, so it only has to stay alive until the request is prepared.
+      return .open(
+        FilePath(platformString: path),
+        in: FileDescriptor(rawValue: AT_FDCWD),
+        mode: FileDescriptor.AccessMode(rawValue: flags & O_ACCMODE),
+        options: FileDescriptor.OpenOptions(rawValue: flags & ~O_ACCMODE),
+        permissions: SystemPackage.FilePermissions(rawValue: permissions),
+        context: context
+      )
+    case .readFile(let file, let buffer, let offset):
+      return .read(FileDescriptor(rawValue: file), into: buffer, at: UInt64(offset), context: context)
+    case .writeFile(let file, let buffer, let offset):
+      return .write(
+        UnsafeMutableRawBufferPointer(mutating: buffer),
+        into: FileDescriptor(rawValue: file),
+        at: UInt64(offset),
+        context: context
+      )
     }
   }
 
@@ -182,6 +198,8 @@ struct IOUringBackend: ~Copyable {
 
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
 extension IOUringBackend: IOBackend {
+  static var performsFileOperations: Bool { true }
+
   static func attempt(_ operation: IOOperation) -> Result<Int, IOError>? {
     // The ring performs every operation.
     nil
