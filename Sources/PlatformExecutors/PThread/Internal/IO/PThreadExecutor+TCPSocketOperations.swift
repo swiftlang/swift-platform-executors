@@ -120,14 +120,14 @@ extension PThreadExecutor: TCPSocketOperationScheduler {
 
   package func close(connection: consuming TCPConnection) async throws(IOError) {
     let fileDescriptor = connection.takeFileDescriptor()
-    try await self.perform(.close(socket: fileDescriptor)) { continuation in
+    try await self.perform(.close(fileDescriptor: fileDescriptor)) { continuation in
       .void(continuation)
     }
   }
 
   package func close(listener: consuming TCPListener) async throws(IOError) {
     let fileDescriptor = listener.takeFileDescriptor()
-    try await self.perform(.close(socket: fileDescriptor)) { continuation in
+    try await self.perform(.close(fileDescriptor: fileDescriptor)) { continuation in
       .void(continuation)
     }
   }

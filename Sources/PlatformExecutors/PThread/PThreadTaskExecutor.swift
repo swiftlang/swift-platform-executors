@@ -50,6 +50,17 @@ public final class PThreadTaskExecutor: TaskExecutor {
   internal nonisolated(unsafe) var executors: [PThreadExecutor]!
   /// The current index for selecting the next executor to run on.
   private let index = Atomic<Int>(0)
+  #if ExperimentalIO
+  /// The number of threads that perform the file operations of mechanisms that cannot wait for files.
+  private let blockingPoolSize: Int
+  /// The queue of the threads that run blocking file operations as an unmanaged reference, or zero while it
+  /// doesn't exist. It is created the first time an operation needs it.
+  ///
+  /// We are using an atomic here with a pointer to the queue to avoid swift_once overhead.
+  private let _blockingQueue = Atomic<UInt>(0)
+  /// Serializes the creation of the queue that runs blocking file operations.
+  private let _blockingQueueCreation = Mutex<Void>(())
+  #endif
 
   /// Creates a new `PThreadTaskExecutor` with the specified pool size and thread naming.
   ///
@@ -65,16 +76,23 @@ public final class PThreadTaskExecutor: TaskExecutor {
   ///     to at least 128 KiB, or the platform's minimum thread stack size if larger.
   ///   - taskExecutor: The task executor to use in-case this executor gets wrapped.
   ///   - ioBackend: The mechanism that the threads of the pool wait for events and perform their I/O with.
+  ///   - blockingPoolSize: The number of threads that perform file operations with blocking syscalls.
+  ///     If `nil` is passed then the pool size will be used.
   internal init(
     name: String,
     poolSize: Int? = nil,
     stackSize: Int? = nil,
     taskExecutor: UnownedTaskExecutor?,
-    ioBackend: PThreadIOBackend = .platformDefault
+    ioBackend: PThreadIOBackend = .platformDefault,
+    blockingPoolSize: Int? = nil
   ) {
     let poolSize = poolSize ?? SystemCoreCount.coreCount
     self.name = "\(name)-size(\(poolSize))"
     precondition(poolSize > 0, "The pool size must be positive")
+    #if ExperimentalIO
+    self.blockingPoolSize = blockingPoolSize ?? poolSize
+    precondition(self.blockingPoolSize > 0, "The blocking pool size must be positive")
+    #endif
     var executors = [PThreadExecutor]()
     executors.reserveCapacity(poolSize)
     let taskExecutor = taskExecutor ?? self.asUnownedTaskExecutor()
@@ -108,6 +126,8 @@ public final class PThreadTaskExecutor: TaskExecutor {
   ///     thread stack size. Must be greater than 0. The value is rounded up to a multiple of the page size and
   ///     to at least 128 KiB, or the platform's minimum thread stack size if larger.
   ///   - ioBackend: The mechanism that the threads of the pool wait for events and perform their I/O with.
+  ///   - blockingPoolSize: The number of threads that perform file operations with blocking syscalls.
+  ///     If `nil` is passed then the pool size will be used.
   ///   - body: A closure that gets access to the pooled task executor for the duration of execution.
   /// - Returns: The value returned by the body closure.
   public nonisolated(nonsending) static func withExecutor<Return, Failure: Error>(
@@ -115,6 +135,7 @@ public final class PThreadTaskExecutor: TaskExecutor {
     poolSize: Int? = nil,
     stackSize: Int? = nil,
     ioBackend: PThreadIOBackend = .platformDefault,
+    blockingPoolSize: Int? = nil,
     body: (PThreadTaskExecutor) async throws(Failure) -> Return
   ) async throws(Failure) -> Return {
     do {
@@ -124,6 +145,7 @@ public final class PThreadTaskExecutor: TaskExecutor {
         stackSize: stackSize,
         taskExecutor: nil,
         ioBackend: ioBackend,
+        blockingPoolSize: blockingPoolSize,
         body: body
       )
     } catch {
@@ -139,6 +161,7 @@ public final class PThreadTaskExecutor: TaskExecutor {
     stackSize: Int? = nil,
     taskExecutor: UnownedTaskExecutor?,
     ioBackend: PThreadIOBackend = .platformDefault,
+    blockingPoolSize: Int? = nil,
     body: (PThreadTaskExecutor) async throws -> Return
   ) async rethrows -> Return {
     let executor = PThreadTaskExecutor(
@@ -146,17 +169,59 @@ public final class PThreadTaskExecutor: TaskExecutor {
       poolSize: poolSize,
       stackSize: stackSize,
       taskExecutor: taskExecutor,
-      ioBackend: ioBackend
+      ioBackend: ioBackend,
+      blockingPoolSize: blockingPoolSize
     )
 
     return try await asyncDo {
       try await body(executor)
     } finally: {
-      for pThreadExecutor in executor.executors {
-        pThreadExecutor.shutdown()
-      }
+      executor.shutdownThreads()
     }
   }
+
+  /// Stops and joins the threads of the pool.
+  internal func shutdownThreads() {
+    #if ExperimentalIO
+    let blockingQueue = self._blockingQueue.exchange(0, ordering: .acquiring)
+    if let pointer = UnsafeRawPointer(bitPattern: blockingQueue) {
+      Unmanaged<BlockingWorkQueue>.fromOpaque(pointer).takeRetainedValue().shutdown()
+    }
+    #endif
+    for pThreadExecutor in self.executors {
+      pThreadExecutor.shutdown()
+    }
+  }
+
+  #if ExperimentalIO
+  /// Returns the queue of the threads that run blocking file operations, creating it if it does not exist yet.
+  internal func blockingQueue() -> BlockingWorkQueue {
+    if let queue = self.existingBlockingQueue() {
+      return queue
+    }
+    return self._blockingQueueCreation.withLock { _ in
+      if let queue = self.existingBlockingQueue() {
+        return queue
+      }
+      let queue = BlockingWorkQueue(
+        name: "\(self.name)-blocking",
+        threadCount: self.blockingPoolSize
+      )
+      // The atomic owns one reference to the queue until the threads are shut down.
+      let pointer = Unmanaged.passRetained(queue).toOpaque()
+      self._blockingQueue.store(UInt(bitPattern: pointer), ordering: .releasing)
+      return queue
+    }
+  }
+
+  private func existingBlockingQueue() -> BlockingWorkQueue? {
+    let queue = self._blockingQueue.load(ordering: .acquiring)
+    guard let pointer = UnsafeRawPointer(bitPattern: queue) else {
+      return nil
+    }
+    return Unmanaged<BlockingWorkQueue>.fromOpaque(pointer).takeUnretainedValue()
+  }
+  #endif
 
   public func enqueue(_ job: consuming ExecutorJob) {
     self.next().enqueue(job)

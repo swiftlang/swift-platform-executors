@@ -197,7 +197,15 @@ struct ReadinessOperations: ~Copyable {
       // on the socket, and only the  executor's thread knows about those, so a
       // close is never performed here.
       return nil
+
+    case .openFile, .readFile, .writeFile:
+      Self.unsupportedFileOperation()
     }
+  }
+
+  /// Traps since a readiness based mechanism cannot perform file operations.
+  private static func unsupportedFileOperation() -> Never {
+    fatalError("Readiness based mechanisms do not perform file operations")
   }
 
   /// Performs an operation whose file descriptor just became ready.
@@ -230,6 +238,8 @@ struct ReadinessOperations: ~Copyable {
     case .shutdown, .close:
       // Neither waits for readiness.
       return .read
+    case .openFile, .readFile, .writeFile:
+      Self.unsupportedFileOperation()
     }
   }
 
@@ -269,6 +279,9 @@ struct ReadinessOperations: ~Copyable {
 
     case .connect, .accept, .read, .write:
       break
+
+    case .openFile, .readFile, .writeFile:
+      Self.unsupportedFileOperation()
     }
 
     let fileDescriptor = operation.fileDescriptor

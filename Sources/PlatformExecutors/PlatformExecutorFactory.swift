@@ -113,17 +113,25 @@ import Foundation
 /// By default the size of the ``defaultExecutor`` is determined by the systems available core count.
 /// On Linux this takes into account C1 and C2 group restrictions. Additionally, the size can be customized
 /// by setting the `SWIFT_PLATFORM_DEFAULT_EXECUTOR_POOL_SIZE` environment variable.
+///
+/// The threads that perform blocking file operations for the I/O mechanisms that cannot wait for files are sized
+/// to the same number of threads as ``defaultExecutor``. This can be customized by setting the
+/// `SWIFT_PLATFORM_DEFAULT_EXECUTOR_BLOCKING_POOL_SIZE` environment variable.
 @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
 @_spi(ExperimentalCustomExecutors) public struct PlatformExecutorFactory: ExecutorFactory {
   @_spi(ExperimentalCustomExecutors) public static let mainExecutor: any MainExecutor = PThreadMainExecutor()
   public static let defaultExecutor: any TaskExecutor = {
-    let coreCountEnvironment = ProcessInfo.processInfo
-      .environment["SWIFT_PLATFORM_DEFAULT_EXECUTOR_POOL_SIZE"]
-    let coreCount = coreCountEnvironment.flatMap { Int($0) } ?? SystemCoreCount.coreCount
+    let environment = ProcessInfo.processInfo.environment
+    let coreCount =
+      environment["SWIFT_PLATFORM_DEFAULT_EXECUTOR_POOL_SIZE"].flatMap { Int($0) } ?? SystemCoreCount.coreCount
+    let blockingPoolSize = environment["SWIFT_PLATFORM_DEFAULT_EXECUTOR_BLOCKING_POOL_SIZE"]
+      .flatMap { Int($0) }
+      .flatMap { $0 > 0 ? $0 : nil }
     return PThreadTaskExecutor(
       name: "global",
       poolSize: coreCount,
-      taskExecutor: nil
+      taskExecutor: nil,
+      blockingPoolSize: blockingPoolSize
     )
   }()
 

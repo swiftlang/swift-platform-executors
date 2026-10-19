@@ -141,6 +141,9 @@ struct IOUringBackend: ~Copyable {
       return .shutdown(SocketDescriptor(rawValue: socket), how, context: context)
     case .close(let socket):
       return .close(FileDescriptor(rawValue: socket), context: context)
+    case .openFile, .readFile, .writeFile:
+      // The file operations are not performed by the ring yet.
+      fatalError("The io_uring backend does not perform file operations yet")
     }
   }
 

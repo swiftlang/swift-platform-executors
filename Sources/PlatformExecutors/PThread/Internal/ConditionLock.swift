@@ -170,6 +170,34 @@ final class ConditionVariable<Value: ~Copyable> {
     return try block(&state)
   }
 
+  /// Runs the block while holding the lock, without signalling anybody.
+  ///
+  /// This is for changes that don't give a waiter anything to do.
+  func withLock<Return: ~Copyable>(
+    _ block: (inout sending Value) -> Return
+  ) -> Return {
+    self._lock()
+    defer {
+      self._unlock()
+    }
+    return block(&state)
+  }
+
+  /// Runs the block while holding the lock, and signals one waiter afterwards only if the block asks for it.
+  func withLockAndSignalIfNeeded<Return>(
+    _ block: (inout sending Value) -> (shouldSignal: Bool, result: Return)
+  ) -> Return {
+    self._lock()
+    defer {
+      self._unlock()
+    }
+    let (shouldSignal, result) = block(&state)
+    if shouldSignal {
+      self._signal()
+    }
+    return result
+  }
+
   func signalAll<Return, Failure: Error>(
     block: (inout sending Value) throws(Failure) -> Return
   ) throws(Failure) -> Return {
@@ -183,13 +211,13 @@ final class ConditionVariable<Value: ~Copyable> {
     return try block(&state)
   }
 
-  func wait<Return, Failure: Error>(
+  func wait<Return: ~Copyable, Failure: Error>(
     block: (inout sending Value) throws(Failure) -> Return
   ) throws(Failure) -> Return {
     try self.wait(when: { _ in true }, block: block)
   }
 
-  func wait<Return, Failure: Error>(
+  func wait<Return: ~Copyable, Failure: Error>(
     when: (inout sending Value) -> Bool,
     block: (inout sending Value) throws(Failure) -> Return
   ) throws(Failure) -> Return {

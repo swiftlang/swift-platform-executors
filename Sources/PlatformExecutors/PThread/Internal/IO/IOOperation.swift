@@ -48,12 +48,26 @@ enum IOOperation {
   /// Shuts down the given directions of a socket.
   case shutdown(socket: CInt, direction: SocketShutdownDirection)
 
-  /// Closes a socket.
-  case close(socket: CInt)
+  /// Closes a file descriptor.
+  case close(fileDescriptor: CInt)
+
+  /// Opens the file at the given path, relative to the current working directory.
+  case openFile(path: UnsafePointer<CChar>, flags: CInt, permissions: mode_t)
+
+  /// Reads from the given offset of a file into the given buffer.
+  case readFile(file: CInt, buffer: UnsafeMutableRawBufferPointer, offset: Int64)
+
+  /// Writes the given buffer to the given offset of a file.
+  case writeFile(file: CInt, buffer: UnsafeRawBufferPointer, offset: Int64)
 
   /// The file descriptor that this operation is performed on.
   var fileDescriptor: CInt {
     switch self {
+    case .openFile:
+      fatalError("The operation creates its file descriptor.")
+    case .readFile(let fileDescriptor, _, _),
+      .writeFile(let fileDescriptor, _, _):
+      return fileDescriptor
     case .connect(let fileDescriptor, _, _),
       .accept(let fileDescriptor),
       .read(let fileDescriptor, _),
