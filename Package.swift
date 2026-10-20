@@ -65,11 +65,7 @@ let package = Package(
       name: "PlatformExecutors",
       dependencies: [
         .target(name: "CPlatformExecutors"),
-        .product(
-          name: "BasicContainers",
-          package: "swift-collections",
-          condition: .when(traits: ["ExperimentalIO"])
-        ),
+        .product(name: "BasicContainers", package: "swift-collections"),
         .product(
           name: "DequeModule",
           package: "swift-collections",

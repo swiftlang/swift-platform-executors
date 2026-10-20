@@ -56,6 +56,38 @@ let benchmarks: @Sendable () -> Void = {
     .wallClock,
   ]
 
+  for tasks in [1, 100, 10_000] {
+    Benchmark(
+      "ExecutorEnqueueYield\(tasks)Tasks",
+      configuration: .init(
+        metrics: defaultMetrics,
+        scalingFactor: .one,
+        maxDuration: .seconds(10_000_000),
+        maxIterations: 5
+      )
+    ) { benchmark in
+      guard #available(anyAppleOS 27.0, *) else {
+        fatalError("The executor enqueue benchmark requires the I/O APIs.")
+      }
+      await runYieldingTasks(tasks: tasks, yieldsPerTask: 1_000_000 / tasks, benchmark: benchmark)
+    }
+  }
+
+  Benchmark(
+    "ExecutorEnqueueSpawn100000Tasks",
+    configuration: .init(
+      metrics: defaultMetrics,
+      scalingFactor: .one,
+      maxDuration: .seconds(10_000_000),
+      maxIterations: 5
+    )
+  ) { benchmark in
+    guard #available(anyAppleOS 27.0, *) else {
+      fatalError("The executor enqueue benchmark requires the I/O APIs.")
+    }
+    await runSpawningTasks(tasks: 100_000, benchmark: benchmark)
+  }
+
   ioBenchmark(
     "TCPPingPong",
     configuration: .init(

@@ -119,12 +119,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     fileprivate var _nextExecutedJobs: ContiguousArray<UnownedJob>
 
     /// The jobs that were drained from the inbox, in the order they have to be executed in.
-    fileprivate var _jobs: NonCopyablePriorityQueue<UnownedJob> = {
-      guard #available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *) else {
-        return .init(compare: compareJobsByPriorityAndID)
-      }
-      return .init(compare: compareJobsByPriorityAndSequenceNumber)
-    }()
+    fileprivate var _jobs = JobQueue()
 
     #if ExperimentalIO && !os(WASI)
     /// The backing storage of the next submitted I/O commands.
@@ -180,7 +175,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   }
 
   /// The jobs that were drained from the inbox and wait to be executed.
-  private var jobs: NonCopyablePriorityQueue<UnownedJob> {
+  private var jobs: JobQueue {
     _read {
       assert(self.onExecutor)
       yield self._threadBoundState._jobs
@@ -420,15 +415,8 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   }
 
   package func enqueue(_ job: consuming ExecutorJob) {
-    if #available(macOS 9999, *) {
-      job.sequenceNumber =
-        self.sequenceNumber.wrappingAdd(
-          1,
-          ordering: .relaxed
-        ).newValue
-    }
-
-    // The job is its own node.
+    // The job is its own node. The jobs of the inbox are ordered by when they were put into it, so they do not need a
+    // sequence number.
     let unownedJob = UnownedJob(job)
     let address = unsafe unsafeBitCast(unownedJob, to: UInt.self)
     var head = self.inbox.load(ordering: .relaxed)
@@ -466,10 +454,23 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     guard cursor > Self.inboxSleeping else {
       return
     }
+
+    // The inbox is a stack, so the newest job comes first. Reverse the list in place to push the jobs in the order
+    // they arrived in.
+    var oldestFirst: UInt = 0
     while cursor != 0 {
       let job = unsafe unsafeBitCast(cursor, to: UnownedJob.self)
-      cursor = ExecutorJob(job).inboxNext
-      self.jobs.push(job)
+      let next = ExecutorJob(job).inboxNext
+      var node = ExecutorJob(job)
+      node.inboxNext = oldestFirst
+      oldestFirst = cursor
+      cursor = next
+    }
+
+    while oldestFirst != 0 {
+      let job = unsafe unsafeBitCast(oldestFirst, to: UnownedJob.self)
+      oldestFirst = ExecutorJob(job).inboxNext
+      self.jobs.push(ExecutorJob(job))
     }
   }
 
@@ -725,7 +726,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     // We expect empty threadBoundState._nextExecutedJobs, to put a new batch of tasks into
     assert(threadBoundState._nextExecutedJobs.isEmpty)
 
-    var moreJobsToConsider = !threadBoundState._jobs.queue.isEmpty
+    var moreJobsToConsider = !threadBoundState._jobs.isEmpty
     var moreContinuousClockJobsToConsider = !continuousClockJobs.queue.isEmpty
     var moreSuspendingClockJobsToConsider = !suspendingClockJobs.queue.isEmpty
 
@@ -746,7 +747,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
       if moreJobsToConsider, threadBoundState._nextExecutedJobs.count < batchSize,
         let job = threadBoundState._jobs.pop()
       {
-        threadBoundState._nextExecutedJobs.append(job)
+        threadBoundState._nextExecutedJobs.append(UnownedJob(job))
       } else {
         moreJobsToConsider = false
       }
@@ -780,7 +781,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
       }
     }
 
-    return (!threadBoundState._jobs.queue.isEmpty, nextContinuousClockDeadline, nextSuspendingClockDeadline)
+    return (!threadBoundState._jobs.isEmpty, nextContinuousClockDeadline, nextSuspendingClockDeadline)
   }
 
   private func currentIOWaitStrategy(
