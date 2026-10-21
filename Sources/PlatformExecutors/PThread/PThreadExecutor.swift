@@ -572,6 +572,11 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     // This is cleared before the thread can end since a later thread can have the same identity.
     self.runningThreadIdentity.store(PThread.currentThreadIdentity, ordering: .relaxed)
     defer { self.runningThreadIdentity.store(0, ordering: .relaxed) }
+    #if ExperimentalIO && !os(WASI)
+    // Setting up the thread local so that a pool can identify if an enqueue belongs to its pool.
+    unsafe PThread.setCurrentExecutor(UnsafeRawPointer(Unmanaged.passUnretained(self).toOpaque()))
+    defer { unsafe PThread.setCurrentExecutor(nil) }
+    #endif
     self.assertOnExecutor()
 
     // We are creating our job runner and continuation resumer once to avoid
@@ -908,10 +913,10 @@ extension PThreadExecutor {
   /// What an in-flight operation resumes when its result arrives.
   internal enum Resumption: ~Copyable {
     /// Resumes with a connected socket.
-    case connection(Continuation<TCPConnection, IOError>, socket: CInt, executorIndex: Int)
+    case connection(Continuation<TCPConnection, IOError>, socket: CInt)
 
     /// Resumes with the connection that an accept produced.
-    case acceptedConnection(Continuation<TCPConnection, IOError>, executorIndex: Int)
+    case acceptedConnection(Continuation<TCPConnection, IOError>)
 
     /// Resumes with the number of bytes that a read or a write transferred.
     case byteCount(Continuation<Int, IOError>)
@@ -929,24 +934,24 @@ extension PThreadExecutor {
       using resumer: ContinuationResumer
     ) {
       switch consume self {
-      case .connection(let continuation, let socket, let executorIndex):
+      case .connection(let continuation, let socket):
         switch result {
         case .success:
           resumer.resumeConnection(
             continuation,
-            .success(TCPConnection(fileDescriptor: socket, executorIndex: executorIndex))
+            .success(TCPConnection(fileDescriptor: socket))
           )
         case .failure(let error):
           try? StreamSocketSyscall.close(socket)
           resumer.resumeConnection(continuation, .failure(error))
         }
 
-      case .acceptedConnection(let continuation, let executorIndex):
+      case .acceptedConnection(let continuation):
         switch result {
         case .success(let fileDescriptor):
           resumer.resumeConnection(
             continuation,
-            .success(TCPConnection(fileDescriptor: CInt(fileDescriptor), executorIndex: executorIndex))
+            .success(TCPConnection(fileDescriptor: CInt(fileDescriptor)))
           )
         case .failure(let error):
           resumer.resumeConnection(continuation, .failure(error))
@@ -963,10 +968,10 @@ extension PThreadExecutor {
     /// Resumes the continuation with the result that the backend reported.
     internal consuming func resume(with result: Result<Int, IOError>) {
       switch consume self {
-      case .connection(let continuation, let socket, let executorIndex):
+      case .connection(let continuation, let socket):
         switch result {
         case .success:
-          continuation.resume(returning: TCPConnection(fileDescriptor: socket, executorIndex: executorIndex))
+          continuation.resume(returning: TCPConnection(fileDescriptor: socket))
         case .failure(let error):
           // We created the socket so we have to close it
           // TODO: In the future with io_uring we need to go through the backend
@@ -975,11 +980,11 @@ extension PThreadExecutor {
           continuation.resume(throwing: error)
         }
 
-      case .acceptedConnection(let continuation, let executorIndex):
+      case .acceptedConnection(let continuation):
         switch result {
         case .success(let fileDescriptor):
           continuation.resume(
-            returning: TCPConnection(fileDescriptor: CInt(fileDescriptor), executorIndex: executorIndex)
+            returning: TCPConnection(fileDescriptor: CInt(fileDescriptor))
           )
         case .failure(let error):
           continuation.resume(throwing: error)

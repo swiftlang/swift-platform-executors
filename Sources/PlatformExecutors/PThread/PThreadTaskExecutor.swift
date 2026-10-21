@@ -239,6 +239,22 @@ public final class PThreadTaskExecutor: TaskExecutor {
   internal func next() -> PThreadExecutor {
     unsafe self.executors[abs(self.index.wrappingAdd(1, ordering: .relaxed).newValue % self.executors.count)]
   }
+
+  /// Returns the executor of the pool that the calling thread runs, or the next
+  /// one if the calling thread is not one of the pool.
+  internal func current() -> PThreadExecutor {
+    if let pointer = unsafe PThread.currentExecutor {
+      // The thread runs an executor, which is not necessarily one of this pool.
+      let executor = unsafe Unmanaged<PThreadExecutor>.fromOpaque(pointer)
+      let index = unsafe executor._withUnsafeGuaranteedRef { $0.poolIndex }
+      if unsafe index < self.executors.count,
+        unsafe UnsafeRawPointer(Unmanaged.passUnretained(self.executors[index]).toOpaque()) == pointer
+      {
+        return unsafe self.executors[index]
+      }
+    }
+    return self.next()
+  }
 }
 
 #if !canImport(Darwin)

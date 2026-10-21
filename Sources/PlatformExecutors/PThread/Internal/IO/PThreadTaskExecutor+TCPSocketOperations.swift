@@ -16,57 +16,58 @@
 
 // MARK: - TCP socket operations
 
-/// A pool forwards every operation to the executor that services the socket. A socket stays on the executor
-/// that created it.
+/// A pool performs every operation on the executor that the calling thread runs, or on the next one if it does not
+/// run one.
 @available(anyAppleOS 27.0, *)
 extension PThreadTaskExecutor: TCPSocketOperationScheduler {
   public typealias TCPConnection = PThreadTCPConnection
   public typealias TCPListener = PThreadTCPListener
 
   public func connect(to address: SocketAddress) async throws(IOError) -> TCPConnection {
-    try await self.next().connect(to: address)
+    try await self.current().connect(to: address)
   }
 
   public func listen(on address: SocketAddress, backlog: Int) async throws(IOError) -> TCPListener {
-    try await self.next().listen(on: address, backlog: backlog)
+    try await self.current().listen(on: address, backlog: backlog)
   }
 
   public func accept(listener: borrowing TCPListener) async throws(IOError) -> TCPConnection {
-    try await unsafe self.executors[listener.executorIndex].accept(listener: listener)
+    try await self.current().accept(listener: listener)
   }
 
   public func read(
     connection: borrowing TCPConnection,
     into buffer: inout OutputRawSpan
   ) async throws(IOError) -> Int {
-    try await unsafe self.executors[connection.executorIndex].read(connection: connection, into: &buffer)
+    try await self.current().read(connection: connection, into: &buffer)
   }
 
   public func write(connection: borrowing TCPConnection, from buffer: RawSpan) async throws(IOError) -> Int {
-    try await unsafe self.executors[connection.executorIndex].write(connection: connection, from: buffer)
+    try await self.current().write(connection: connection, from: buffer)
   }
 
   public func shutdown(
     connection: borrowing TCPConnection,
     direction: SocketShutdownDirection
   ) async throws(IOError) {
-    try await unsafe self.executors[connection.executorIndex].shutdown(connection: connection, direction: direction)
+    try await self.current().shutdown(connection: connection, direction: direction)
   }
 
   public func close(connection: consuming TCPConnection) async throws(IOError) {
-    try await unsafe self.executors[connection.executorIndex].close(connection: connection)
+    try await self.current().close(connection: connection)
   }
 
   public func close(listener: consuming TCPListener) async throws(IOError) {
-    try await unsafe self.executors[listener.executorIndex].close(listener: listener)
+    try await self.current().close(listener: listener)
   }
 
   public func localAddress(of connection: borrowing TCPConnection) throws(IOError) -> SocketAddress {
-    try unsafe self.executors[connection.executorIndex].localAddress(of: connection)
+    // Reading the address is a plain syscall that no executor has to perform.
+    try unsafe self.executors[0].localAddress(of: connection)
   }
 
   public func localAddress(of listener: borrowing TCPListener) throws(IOError) -> SocketAddress {
-    try unsafe self.executors[listener.executorIndex].localAddress(of: listener)
+    try unsafe self.executors[0].localAddress(of: listener)
   }
 }
 

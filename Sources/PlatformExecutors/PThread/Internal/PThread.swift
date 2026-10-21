@@ -253,6 +253,30 @@ enum PThread {
     #endif
   }
 
+  #if ExperimentalIO && !os(WASI)
+  /// The key of the thread specific value that holds the executor which runs on a thread.
+  private static let executorKey: pthread_key_t = {
+    var key = pthread_key_t()
+    let result = unsafe pthread_key_create(&key, nil)
+    precondition(result == 0, "pthread_key_create failed with error code: \(result)")
+    return key
+  }()
+
+  /// The executor that runs on the calling thread, or `nil` if the thread runs none.
+  ///
+  /// - Important: The value is not retained. It stays valid as long as the thread runs the executor.
+  // TODO: If we get something like job tokens that executers pass when running/resuming we should be able to get rid of this.
+  static var currentExecutor: UnsafeRawPointer? {
+    unsafe pthread_getspecific(Self.executorKey).map { UnsafeRawPointer($0) }
+  }
+
+  /// Sets the executor that runs on the calling thread.
+  static func setCurrentExecutor(_ executor: UnsafeRawPointer?) {
+    let result = unsafe pthread_setspecific(Self.executorKey, executor)
+    precondition(result == 0, "pthread_setspecific failed with error code: \(result)")
+  }
+  #endif
+
   static func joinThread(_ thread: PThread.ThreadHandle) {
     let result = unsafe pthread_join(thread.rawValue, nil)
     precondition(result == 0, "pthread_join failed with error code: \(result)")

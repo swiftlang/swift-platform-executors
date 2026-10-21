@@ -19,12 +19,8 @@ public struct PThreadFile: Sendable {
   /// The file descriptor of the file.
   package var fileDescriptor: CInt
 
-  /// The index of the executor in the pool that services the file descriptor.
-  internal var executorIndex: Int
-
-  internal init(fileDescriptor: CInt, executorIndex: Int) {
+  internal init(fileDescriptor: CInt) {
     self.fileDescriptor = fileDescriptor
-    self.executorIndex = executorIndex
   }
 }
 #endif

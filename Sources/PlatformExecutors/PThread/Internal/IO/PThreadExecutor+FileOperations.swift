@@ -40,7 +40,7 @@ extension PThreadExecutor {
       let fileDescriptor = try await unsafe self.perform(operation) { continuation in
         .byteCount(continuation)
       }
-      return PThreadFile(fileDescriptor: CInt(fileDescriptor), executorIndex: self.poolIndex)
+      return PThreadFile(fileDescriptor: CInt(fileDescriptor))
     }
   }
 

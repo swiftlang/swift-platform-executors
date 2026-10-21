@@ -55,7 +55,7 @@ extension PThreadExecutor: TCPSocketOperationScheduler {
         )
       }
       return try await unsafe self.perform(operation) { continuation in
-        .connection(continuation, socket: socket, executorIndex: self.poolIndex)
+        .connection(continuation, socket: socket)
       }
     }
   }
@@ -70,12 +70,12 @@ extension PThreadExecutor: TCPSocketOperationScheduler {
       try? StreamSocketSyscall.close(socket)
       throw error
     }
-    return TCPListener(fileDescriptor: socket, executorIndex: self.poolIndex)
+    return TCPListener(fileDescriptor: socket)
   }
 
   package func accept(listener: borrowing TCPListener) async throws(IOError) -> TCPConnection {
     try await unsafe self.perform(.accept(socket: listener.fileDescriptor)) { continuation in
-      .acceptedConnection(continuation, executorIndex: self.poolIndex)
+      .acceptedConnection(continuation)
     }
   }
 

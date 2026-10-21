@@ -19,12 +19,8 @@ public struct PThreadTCPConnection: Sendable {
   /// The file descriptor of the socket.
   package var fileDescriptor: CInt
 
-  /// The index of the executor in the pool that services the socket.
-  internal var executorIndex: Int
-
-  internal init(fileDescriptor: CInt, executorIndex: Int) {
+  internal init(fileDescriptor: CInt) {
     self.fileDescriptor = fileDescriptor
-    self.executorIndex = executorIndex
   }
 
   /// Takes the file descriptor out of the socket, giving up ownership of it.

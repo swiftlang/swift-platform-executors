@@ -35,7 +35,7 @@ extension PThreadTaskExecutor: FileOperationScheduler {
     configuration: FileOpenConfiguration
   ) async throws(IOError) -> FileHandle {
     if self.performsFileOperations {
-      return try await self.next().openFile(path: path, configuration: configuration)
+      return try await self.current().openFile(path: path, configuration: configuration)
     }
 
     return try await unsafe FileSyscall.withCPath(path) { path async throws(IOError) -> FileHandle in
@@ -46,7 +46,7 @@ extension PThreadTaskExecutor: FileOperationScheduler {
           permissions: FileSyscall.permissions(for: configuration)
         )
       )
-      return PThreadFile(fileDescriptor: CInt(fileDescriptor), executorIndex: 0)
+      return PThreadFile(fileDescriptor: CInt(fileDescriptor))
     }
   }
 
@@ -56,7 +56,7 @@ extension PThreadTaskExecutor: FileOperationScheduler {
     at offset: Int64
   ) async throws(IOError) -> Int {
     if self.performsFileOperations {
-      return try await unsafe self.executors[file.executorIndex].readFile(file, into: &buffer, at: offset)
+      return try await self.current().readFile(file, into: &buffer, at: offset)
     }
 
     // The bytes are read into the free capacity of the buffer.
@@ -78,7 +78,7 @@ extension PThreadTaskExecutor: FileOperationScheduler {
     at offset: Int64
   ) async throws(IOError) -> Int {
     if self.performsFileOperations {
-      return try await unsafe self.executors[file.executorIndex].writeFile(file, from: buffer, at: offset)
+      return try await self.current().writeFile(file, from: buffer, at: offset)
     }
 
     let bytes = buffer.withUnsafeBytes { unsafe $0 }
@@ -89,7 +89,7 @@ extension PThreadTaskExecutor: FileOperationScheduler {
 
   public func close(file: consuming FileHandle) async throws(IOError) {
     if self.performsFileOperations {
-      return try await unsafe self.executors[file.executorIndex].closeFile(file)
+      return try await self.current().closeFile(file)
     }
     _ = try await unsafe self.performBlocking(.close(fileDescriptor: file.fileDescriptor))
   }

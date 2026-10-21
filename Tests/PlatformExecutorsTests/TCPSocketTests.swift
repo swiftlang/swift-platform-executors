@@ -17,6 +17,25 @@ import Testing
 @_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import _Concurrency
 @_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import PlatformExecutors
 
+#if canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#elseif canImport(Darwin)
+import Darwin
+#endif
+
+/// An identity of the calling thread.
+private func currentThreadIdentity() -> UInt {
+  #if canImport(Darwin)
+  // Darwin imports `pthread_t` as a pointer.
+  let thread = unsafe pthread_self()
+  #else
+  let thread = pthread_self()
+  #endif
+  return withUnsafeBytes(of: thread) { unsafe $0.load(as: UInt.self) }
+}
+
 @Suite
 struct TCPSocketTests {
   @available(anyAppleOS 27.0, *)
@@ -296,6 +315,91 @@ struct TCPSocketTests {
           )
           _ = consume listener
         }
+      }
+    }
+  }
+
+  @Test(arguments: PThreadIOBackend.tested)
+  @available(anyAppleOS 27.0, *)
+  func connectionsAreUsedOnOtherExecutorsOfThePoolThanTheOneThatAcceptedThem(
+    ioBackend: PThreadIOBackend
+  ) async throws {
+    let connections = 16
+    try await PThreadTaskExecutor.withExecutor(name: "TCPSocketTest", poolSize: 4, ioBackend: ioBackend) { executor in
+      try await withTaskExecutorPreference(executor) {
+        let listener = try await TCPListener.bind(to: Self.loopback)
+        let address = try listener.localAddress
+        let payload = Array("Hello from a connection that moved".utf8)
+
+        try await withThrowingTaskGroup(of: [UInt8].self) { group in
+          for _ in 0..<connections {
+            group.addTask {
+              var client = try await TCPConnection.connect(to: address)
+              try await client.write(from: payload.span.bytes)
+              try await client.shutdown(.write)
+              let echoed = try await client.readUntilEndOfStream()
+              try await client.close()
+              return echoed
+            }
+          }
+
+          // This task only accepts. Every connection is echoed by a task of its own, which the pool runs on
+          // another executor than the one that accepted the connection.
+          try await withThrowingTaskGroup { servers in
+            for _ in 0..<connections {
+              var acceptedBox: TCPConnection? = try await listener.accept()
+              servers.addTask {
+                var accepted = acceptedBox.take()!
+                try await accepted.echoUntilEndOfStream()
+                try await accepted.close()
+              }
+            }
+            try await servers.waitForAll()
+          }
+
+          for try await echoed in group {
+            #expect(echoed == payload)
+          }
+        }
+
+        try await listener.close()
+      }
+    }
+  }
+
+  @Test(arguments: PThreadIOBackend.tested)
+  @available(anyAppleOS 27.0, *)
+  func operationsOfAPoolStayOnTheThreadOfTheTask(ioBackend: PThreadIOBackend) async throws {
+    let tasks = 32
+    try await PThreadTaskExecutor.withExecutor(name: "TCPSocketTest", poolSize: 4, ioBackend: ioBackend) { executor in
+      try await withTaskExecutorPreference(executor) {
+        let listener = try await TCPListener.bind(to: Self.loopback)
+        let address = try listener.localAddress
+
+        try await withThrowingTaskGroup(of: Bool.self) { group in
+          for _ in 0..<tasks {
+            group.addTask {
+              // Connecting to a listener waits for the handshake, so the task suspends and resumes where the
+              // pool performed the operation.
+              let before = currentThreadIdentity()
+              let client = try await TCPConnection.connect(to: address)
+              let after = currentThreadIdentity()
+              try await client.close()
+              return before == after
+            }
+          }
+
+          for _ in 0..<tasks {
+            let accepted = try await listener.accept()
+            try await accepted.close()
+          }
+
+          for try await stayedOnTheThread in group {
+            #expect(stayedOnTheThread)
+          }
+        }
+
+        try await listener.close()
       }
     }
   }
