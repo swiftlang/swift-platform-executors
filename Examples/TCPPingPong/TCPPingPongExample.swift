@@ -96,17 +96,17 @@ extension TCPConnection {
     // TODO: We need async OutputSpan overloads on Array/String to avoid this
     let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: messageLength, alignment: 1)
     defer {
-      buffer.deallocate()
+      unsafe buffer.deallocate()
     }
 
-    var output = OutputRawSpan(buffer: buffer, initializedCount: 0)
+    var output = unsafe OutputRawSpan(buffer: buffer, initializedCount: 0)
     while output.freeCapacity > 0 {
       if try await self.read(into: &output) == 0 {
         throw EndOfStreamError()
       }
     }
-    let count = output.finalize(for: buffer)
-    return String(decoding: UnsafeRawBufferPointer(rebasing: buffer[..<count]), as: UTF8.self)
+    let count = unsafe output.finalize(for: buffer)
+    return unsafe String(decoding: UnsafeRawBufferPointer(rebasing: buffer[..<count]), as: UTF8.self)
   }
 }
 

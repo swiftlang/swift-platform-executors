@@ -104,21 +104,21 @@ public final class PThreadTaskExecutor: TaskExecutor {
     #endif
     var executors = [PThreadExecutor]()
     executors.reserveCapacity(poolSize)
-    let taskExecutor = taskExecutor ?? self.asUnownedTaskExecutor()
+    let taskExecutor = unsafe taskExecutor ?? self.asUnownedTaskExecutor()
     for i in 0..<poolSize {
-      executors
+      unsafe executors
         .append(
           PThreadExecutor(
             name: "\(name)-\(i)",
             stackSize: stackSize,
             poolIndex: i,
             serialExecutor: nil,
-            taskExecutor: taskExecutor,
+            taskExecutor: unsafe taskExecutor,
             ioBackend: ioBackend
           )
         )
     }
-    self.executors = executors
+    unsafe self.executors = executors
   }
 
   /// Creates a new platform-native pooled task executor.
@@ -148,7 +148,7 @@ public final class PThreadTaskExecutor: TaskExecutor {
     body: (PThreadTaskExecutor) async throws(Failure) -> Return
   ) async throws(Failure) -> Return {
     do {
-      return try await self._withExecutor(
+      return try await unsafe self._withExecutor(
         name: name,
         poolSize: poolSize,
         stackSize: stackSize,
@@ -173,7 +173,7 @@ public final class PThreadTaskExecutor: TaskExecutor {
     blockingPoolSize: Int? = nil,
     body: (PThreadTaskExecutor) async throws -> Return
   ) async rethrows -> Return {
-    let executor = PThreadTaskExecutor(
+    let executor = unsafe PThreadTaskExecutor(
       name: name,
       poolSize: poolSize,
       stackSize: stackSize,
@@ -193,11 +193,11 @@ public final class PThreadTaskExecutor: TaskExecutor {
   internal func shutdownThreads() {
     #if ExperimentalIO
     let blockingQueue = self._blockingQueue.exchange(0, ordering: .acquiring)
-    if let pointer = UnsafeRawPointer(bitPattern: blockingQueue) {
-      Unmanaged<BlockingWorkQueue>.fromOpaque(pointer).takeRetainedValue().shutdown()
+    if let pointer = unsafe UnsafeRawPointer(bitPattern: blockingQueue) {
+      unsafe Unmanaged<BlockingWorkQueue>.fromOpaque(pointer).takeRetainedValue().shutdown()
     }
     #endif
-    for pThreadExecutor in self.executors {
+    for pThreadExecutor in unsafe self.executors {
       pThreadExecutor.shutdown()
     }
   }
@@ -217,7 +217,7 @@ public final class PThreadTaskExecutor: TaskExecutor {
         threadCount: self.blockingPoolSize
       )
       // The atomic owns one reference to the queue until the threads are shut down.
-      let pointer = Unmanaged.passRetained(queue).toOpaque()
+      let pointer = unsafe Unmanaged.passRetained(queue).toOpaque()
       self._blockingQueue.store(UInt(bitPattern: pointer), ordering: .releasing)
       return queue
     }
@@ -225,10 +225,10 @@ public final class PThreadTaskExecutor: TaskExecutor {
 
   private func existingBlockingQueue() -> BlockingWorkQueue? {
     let queue = self._blockingQueue.load(ordering: .acquiring)
-    guard let pointer = UnsafeRawPointer(bitPattern: queue) else {
+    guard let pointer = unsafe UnsafeRawPointer(bitPattern: queue) else {
       return nil
     }
-    return Unmanaged<BlockingWorkQueue>.fromOpaque(pointer).takeUnretainedValue()
+    return unsafe Unmanaged<BlockingWorkQueue>.fromOpaque(pointer).takeUnretainedValue()
   }
   #endif
 
@@ -237,13 +237,13 @@ public final class PThreadTaskExecutor: TaskExecutor {
   }
 
   internal func next() -> PThreadExecutor {
-    self.executors[abs(self.index.wrappingAdd(1, ordering: .relaxed).newValue % self.executors.count)]
+    unsafe self.executors[abs(self.index.wrappingAdd(1, ordering: .relaxed).newValue % self.executors.count)]
   }
 }
 
 #if !canImport(Darwin)
 @_spi(ExperimentalScheduling) extension PThreadTaskExecutor: SchedulingExecutor {
-  @_spi(ExperimentalScheduling) public var asSchedulingExecutor: SchedulingExecutor? {
+  @_spi(ExperimentalScheduling) public var asSchedulingExecutor: (any SchedulingExecutor)? {
     return self
   }
 

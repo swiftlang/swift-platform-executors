@@ -75,15 +75,13 @@ struct Thread: ~Copyable, @unchecked Sendable {
       precondition(stackSize > 0, "Stack size must be greater than 0")
     }
 
-    var handle: PThread.ThreadHandle? = nil
-
     // Store everything we want to pass into the c function in a Box so we
     // can hand-over the reference.
     let tuple: ThreadBoxValue = (body: body, name: name)
     let box = ThreadBox(tuple)
 
-    PThread.run(handle: &handle, stackSize: stackSize, args: box)
-    return Thread(handle: handle!, desiredName: name, mustBeJoined: true)
+    let handle = PThread.run(stackSize: stackSize, args: box)
+    return Thread(handle: handle, desiredName: name, mustBeJoined: true)
   }
 
   /// Returns the current running `Thread`.

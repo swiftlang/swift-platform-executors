@@ -27,7 +27,7 @@ struct FileExample {
   static func main() async throws {
     let path = "/tmp/file-example-\(getpid()).txt"
     // TODO: We need to offer this operation in the future.
-    defer { unlink(path) }
+    defer { unsafe unlink(path) }
 
     try await PThreadTaskExecutor.withExecutor(
       name: "File",

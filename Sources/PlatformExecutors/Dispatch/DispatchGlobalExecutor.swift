@@ -19,7 +19,7 @@ package final class DispatchGlobalTaskExecutor: TaskExecutor, @unchecked Sendabl
   package init() {}
 
   package func enqueue(_ job: consuming ExecutorJob) {
-    _dispatchEnqueueGlobal(
+    unsafe _dispatchEnqueueGlobal(
       _Concurrency.UnownedJob(job),
       taskExecutor: self.asUnownedTaskExecutor()
     )

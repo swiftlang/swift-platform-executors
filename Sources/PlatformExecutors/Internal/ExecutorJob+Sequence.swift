@@ -16,12 +16,12 @@
 extension ExecutorJob {
   var sequenceNumber: UInt64 {
     get {
-      return unsafe withUnsafeExecutorPrivateData {
+      return withUnsafeExecutorPrivateData {
         return unsafe $0.assumingMemoryBound(to: UInt64.self)[0]
       }
     }
     set {
-      return unsafe withUnsafeExecutorPrivateData {
+      return withUnsafeExecutorPrivateData {
         unsafe $0.withMemoryRebound(to: UInt64.self) {
           unsafe $0[0] = newValue
         }
@@ -35,12 +35,12 @@ extension ExecutorJob {
   /// The address of the next job in the inbox of an executor, or zero for the last one.
   var inboxNext: UInt {
     get {
-      return unsafe withUnsafeExecutorPrivateData {
+      return withUnsafeExecutorPrivateData {
         return unsafe $0.assumingMemoryBound(to: UInt.self)[1]
       }
     }
     set {
-      return unsafe withUnsafeExecutorPrivateData {
+      return withUnsafeExecutorPrivateData {
         unsafe $0.withMemoryRebound(to: UInt.self) {
           unsafe $0[1] = newValue
         }

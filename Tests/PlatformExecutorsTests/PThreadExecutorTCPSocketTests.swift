@@ -197,14 +197,14 @@ extension PThreadExecutor {
   ) async throws(IOError) -> [UInt8] {
     let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: count, alignment: 1)
     defer {
-      buffer.deallocate()
+      unsafe buffer.deallocate()
     }
 
-    var output = OutputRawSpan(buffer: buffer, initializedCount: 0)
+    var output = unsafe OutputRawSpan(buffer: buffer, initializedCount: 0)
     let received = try await self.read(connection: connection, into: &output)
-    let initializedCount = output.finalize(for: buffer)
+    let initializedCount = unsafe output.finalize(for: buffer)
     #expect(initializedCount == received)
-    return Array(UnsafeRawBufferPointer(rebasing: buffer[..<received]))
+    return unsafe Array(UnsafeRawBufferPointer(rebasing: buffer[..<received]))
   }
 
   /// Reads until the peer closed its side of the connection.

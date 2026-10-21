@@ -53,7 +53,7 @@ public final class PThreadSerialExecutor: SerialExecutor, @unchecked Sendable {
   ///     platform's default thread stack size. Must be greater than 0. The value is rounded up to a multiple
   ///     of the page size and to at least 128 KiB, or the platform's minimum thread stack size if larger.
   public init(name: String, stackSize: Int? = nil) {
-    self.pThreadExecutor = PThreadExecutor(
+    self.pThreadExecutor = unsafe PThreadExecutor(
       name: name,
       stackSize: stackSize,
       serialExecutor: self.asUnownedSerialExecutor(),
@@ -82,7 +82,7 @@ public final class PThreadSerialExecutor: SerialExecutor, @unchecked Sendable {
     body: (PThreadSerialExecutor) async throws(Failure) -> Return
   ) async throws(Failure) -> Return {
     do {
-      return try await self._withExecutor(
+      return try await unsafe self._withExecutor(
         name: name,
         stackSize: stackSize,
         serialExecutor: nil,
@@ -104,7 +104,7 @@ public final class PThreadSerialExecutor: SerialExecutor, @unchecked Sendable {
     body: (PThreadSerialExecutor) async throws -> Return
   ) async rethrows -> Return {
     let executor = PThreadSerialExecutor()
-    executor.pThreadExecutor = PThreadExecutor(
+    executor.pThreadExecutor = unsafe PThreadExecutor(
       name: name,
       stackSize: stackSize,
       serialExecutor: serialExecutor ?? executor.asUnownedSerialExecutor(),
@@ -126,7 +126,7 @@ public final class PThreadSerialExecutor: SerialExecutor, @unchecked Sendable {
 
 #if !canImport(Darwin)
 @_spi(ExperimentalScheduling) extension PThreadSerialExecutor: SchedulingExecutor {
-  @_spi(ExperimentalScheduling) public var asSchedulingExecutor: SchedulingExecutor? {
+  @_spi(ExperimentalScheduling) public var asSchedulingExecutor: (any SchedulingExecutor)? {
     return self
   }
 

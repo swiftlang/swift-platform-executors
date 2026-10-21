@@ -26,7 +26,7 @@
 #if os(Linux) || os(FreeBSD) || canImport(Darwin) || os(WASI)
 
 #if canImport(Glibc)
-@preconcurrency import Glibc
+@unsafe @preconcurrency import Glibc
 #elseif canImport(Musl)
 @preconcurrency import Musl
 #elseif canImport(Darwin)
@@ -110,7 +110,7 @@ enum SystemCoreCount {
 
   private static func firstLineOfFile(path: String) throws -> String {
     let fd = try retryingSyscall(blocking: false) {
-      open(path, O_RDONLY)
+      unsafe open(path, O_RDONLY)
     }.result
     guard fd != -1 else {
       throw SystemError()
@@ -119,7 +119,7 @@ enum SystemCoreCount {
     let result = Result {
       var buffer = [UInt8](repeating: 0, count: 4096)
       let bytesRead = try retryingSyscall(blocking: false) {
-        read(fd, &buffer, buffer.count)
+        unsafe read(fd, &buffer, buffer.count)
       }.result
       guard bytesRead > 0 else {
         throw SystemError()

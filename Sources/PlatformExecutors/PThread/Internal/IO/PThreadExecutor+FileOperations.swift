@@ -31,13 +31,13 @@ extension PThreadExecutor {
     path: String,
     configuration: FileOpenConfiguration
   ) async throws(IOError) -> PThreadFile {
-    try await FileSyscall.withCPath(path) { path async throws(IOError) -> PThreadFile in
-      let operation = IOOperation.openFile(
+    try await unsafe FileSyscall.withCPath(path) { path async throws(IOError) -> PThreadFile in
+      let operation = unsafe IOOperation.openFile(
         path: path,
         flags: FileSyscall.flags(for: configuration),
         permissions: FileSyscall.permissions(for: configuration)
       )
-      let fileDescriptor = try await self.perform(operation) { continuation in
+      let fileDescriptor = try await unsafe self.perform(operation) { continuation in
         .byteCount(continuation)
       }
       return PThreadFile(fileDescriptor: CInt(fileDescriptor), executorIndex: self.poolIndex)
@@ -49,11 +49,11 @@ extension PThreadExecutor {
     into buffer: inout OutputRawSpan,
     at offset: Int64
   ) async throws(IOError) -> Int {
-    let freeCapacity = buffer.withUnsafeMutableBytes { bytes, initializedCount in
-      UnsafeMutableRawBufferPointer(rebasing: bytes[initializedCount...])
+    let freeCapacity = unsafe buffer.withUnsafeMutableBytes { bytes, initializedCount in
+      unsafe UnsafeMutableRawBufferPointer(rebasing: bytes[initializedCount...])
     }
 
-    let count = try await self.perform(
+    let count = try await unsafe self.perform(
       .readFile(file: file.fileDescriptor, buffer: freeCapacity, offset: offset)
     ) { continuation in
       .byteCount(continuation)
@@ -61,7 +61,7 @@ extension PThreadExecutor {
 
     // The kernel wrote into the free capacity of the buffer so we have to
     // update the initialized count now.
-    buffer.withUnsafeMutableBytes { _, initializedCount in
+    unsafe buffer.withUnsafeMutableBytes { _, initializedCount in
       initializedCount += count
     }
     return count
@@ -72,8 +72,8 @@ extension PThreadExecutor {
     from buffer: RawSpan,
     at offset: Int64
   ) async throws(IOError) -> Int {
-    let bytes = buffer.withUnsafeBytes { $0 }
-    return try await self.perform(
+    let bytes = buffer.withUnsafeBytes { unsafe $0 }
+    return try await unsafe self.perform(
       .writeFile(file: file.fileDescriptor, buffer: bytes, offset: offset)
     ) { continuation in
       .byteCount(continuation)
@@ -81,7 +81,7 @@ extension PThreadExecutor {
   }
 
   package func closeFile(_ file: consuming PThreadFile) async throws(IOError) {
-    try await self.perform(.close(fileDescriptor: file.fileDescriptor)) { continuation in
+    try await unsafe self.perform(.close(fileDescriptor: file.fileDescriptor)) { continuation in
       .void(continuation)
     }
   }

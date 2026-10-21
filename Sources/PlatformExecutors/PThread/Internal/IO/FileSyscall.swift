@@ -23,7 +23,7 @@ import Darwin
 // The static methods below shadow the C functions of the same name,
 // so we have to call them from the outside.
 private func sysOpen(_ path: UnsafePointer<CChar>, _ flags: CInt, _ permissions: mode_t) -> CInt {
-  open(path, flags, permissions)
+  unsafe open(path, flags, permissions)
 }
 
 private func sysClose(_ fileDescriptor: CInt) -> CInt {
@@ -99,8 +99,8 @@ enum FileSyscall {
       }
       characters.append(0)
       var span = characters.mutableSpan
-      let pointer = span.withUnsafeMutableBufferPointer { UnsafePointer($0.baseAddress!) }
-      return try await body(pointer)
+      let pointer = span.withUnsafeMutableBufferPointer { unsafe UnsafePointer($0.baseAddress!) }
+      return try await unsafe body(pointer)
     }
   }
 
@@ -110,13 +110,13 @@ enum FileSyscall {
   /// - Returns: The result of the operation in the same form as a mechanism reports it.
   static func perform(_ operation: IOOperation) -> Result<Int, IOError> {
     do {
-      switch operation {
+      switch unsafe operation {
       case .openFile(let path, let flags, let permissions):
-        return .success(Int(try Self.open(path: path, flags: flags, permissions: permissions)))
+        return unsafe .success(Int(try Self.open(path: path, flags: flags, permissions: permissions)))
       case .readFile(let file, let buffer, let offset):
-        return .success(try Self.read(file, into: buffer, at: offset))
+        return unsafe .success(try Self.read(file, into: buffer, at: offset))
       case .writeFile(let file, let buffer, let offset):
-        return .success(try Self.write(file, from: buffer, at: offset))
+        return unsafe .success(try Self.write(file, from: buffer, at: offset))
       case .close(let file):
         try Self.close(file)
         return .success(0)
@@ -141,7 +141,7 @@ enum FileSyscall {
     permissions: mode_t
   ) throws(IOError) -> CInt {
     try retryingFileSyscall {
-      sysOpen(path, flags, permissions)
+      unsafe sysOpen(path, flags, permissions)
     }
   }
 
@@ -172,7 +172,7 @@ enum FileSyscall {
       return 0
     }
     return try retryingFileSyscall {
-      pread(file, baseAddress, buffer.count, off_t(offset))
+      unsafe pread(file, baseAddress, buffer.count, off_t(offset))
     }
   }
 
@@ -192,7 +192,7 @@ enum FileSyscall {
       return 0
     }
     return try retryingFileSyscall {
-      pwrite(file, baseAddress, buffer.count, off_t(offset))
+      unsafe pwrite(file, baseAddress, buffer.count, off_t(offset))
     }
   }
 }

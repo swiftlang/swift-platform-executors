@@ -29,6 +29,7 @@ import Darwin
 /// This never touches a selector. Every change to the table hands back the ``Registration`` that the backend
 /// then arms.
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+@safe
 struct ReadinessOperations: ~Copyable {
   /// The interest that a backend has to arm for one file descriptor.
   struct Registration {
@@ -43,13 +44,13 @@ struct ReadinessOperations: ~Copyable {
   }
 
   /// One operation that is waiting for its file descriptor to become ready.
-  struct PendingOperation {
+  @unsafe struct PendingOperation {
     var operation: IOOperation
     var id: IOOperationID
   }
 
   /// The operations that are waiting on one file descriptor.
-  private struct PendingOperations {
+  @unsafe private struct PendingOperations {
     var read: PendingOperation?
     var write: PendingOperation?
 
@@ -59,30 +60,30 @@ struct ReadinessOperations: ~Copyable {
     /// The interest that the pending operations need.
     var interest: ReadinessInterest {
       var interest = ReadinessInterest()
-      if self.read != nil {
+      if unsafe self.read != nil {
         interest.insert(.read)
       }
-      if self.write != nil {
+      if unsafe self.write != nil {
         interest.insert(.write)
       }
       return interest
     }
 
     func pending(_ direction: ReadinessInterest) -> PendingOperation? {
-      direction == .read ? self.read : self.write
+      unsafe direction == .read ? self.read : self.write
     }
 
     mutating func setPending(_ pending: PendingOperation?, _ direction: ReadinessInterest) {
       if direction == .read {
-        self.read = pending
+        unsafe self.read = unsafe pending
       } else {
-        self.write = pending
+        unsafe self.write = unsafe pending
       }
     }
   }
 
   /// The operations that are waiting, keyed by the file descriptor they are waiting on.
-  private var pendingOperations = [CInt: PendingOperations](
+  private var pendingOperations = unsafe [CInt: PendingOperations](
     minimumCapacity: IOOperation.reservedCapacity
   )
 
@@ -151,10 +152,10 @@ struct ReadinessOperations: ~Copyable {
   /// - Parameter operation: The operation to perform.
   /// - Returns: The result of the operation, or `nil` if it cannot be performed without waiting.
   static func attempt(_ operation: IOOperation) -> Result<Int, IOError>? {
-    switch operation {
+    switch unsafe operation {
     case .connect(let socket, let address, let addressLength):
       do {
-        return try StreamSocketSyscall.connect(
+        return try unsafe StreamSocketSyscall.connect(
           socket,
           to: address,
           addressLength: addressLength
@@ -172,14 +173,14 @@ struct ReadinessOperations: ~Copyable {
 
     case .read(let socket, let buffer):
       do {
-        return try StreamSocketSyscall.receive(socket, into: buffer).map { .success($0) }
+        return try unsafe StreamSocketSyscall.receive(socket, into: buffer).map { .success($0) }
       } catch {
         return .failure(error)
       }
 
     case .write(let socket, let buffer):
       do {
-        return try StreamSocketSyscall.send(socket, from: buffer).map { .success($0) }
+        return try unsafe StreamSocketSyscall.send(socket, from: buffer).map { .success($0) }
       } catch {
         return .failure(error)
       }
@@ -213,8 +214,8 @@ struct ReadinessOperations: ~Copyable {
   /// This differs from ``attempt(_:)`` in just one place: a connect was already started by the attempt,
   /// so its result is read from the socket rather than by connecting again.
   private static func perform(_ operation: IOOperation) -> Result<Int, IOError>? {
-    guard case .connect(let socket, _, _) = operation else {
-      return Self.attempt(operation)
+    guard case .connect(let socket, _, _) = unsafe operation else {
+      return unsafe Self.attempt(operation)
     }
 
     do {
@@ -230,7 +231,7 @@ struct ReadinessOperations: ~Copyable {
 
   /// The direction that an operation waits for.
   private static func direction(of operation: IOOperation) -> ReadinessInterest {
-    switch operation {
+    switch unsafe operation {
     case .connect, .write:
       return .write
     case .accept, .read:
@@ -254,7 +255,7 @@ struct ReadinessOperations: ~Copyable {
   mutating func submit(_ operation: IOOperation, id: IOOperationID) -> Registration? {
     self.trackSubmitted(id)
 
-    switch operation {
+    switch unsafe operation {
     case .close(let socket):
       // Everything that is still waiting on the socket has to be failed before
       // the socket goes away.
@@ -284,20 +285,20 @@ struct ReadinessOperations: ~Copyable {
       Self.unsupportedFileOperation()
     }
 
-    let fileDescriptor = operation.fileDescriptor
-    let direction = Self.direction(of: operation)
+    let fileDescriptor = unsafe operation.fileDescriptor
+    let direction = unsafe Self.direction(of: operation)
 
     var pending =
-      self.pendingOperations[fileDescriptor]
+      unsafe self.pendingOperations[fileDescriptor]
       ?? PendingOperations(registrationID: self.makeRegistrationID())
-    precondition(
+    unsafe precondition(
       pending.pending(direction) == nil,
       "A file descriptor can only have one read and one write in flight at a time"
     )
 
-    pending.setPending(PendingOperation(operation: operation, id: id), direction)
+    unsafe pending.setPending(PendingOperation(operation: operation, id: id), direction)
     self.fileDescriptors[id] = fileDescriptor
-    return self.store(pending, for: fileDescriptor)
+    return unsafe self.store(pending, for: fileDescriptor)
   }
 
   /// Cancels a submitted operation.
@@ -306,22 +307,22 @@ struct ReadinessOperations: ~Copyable {
   /// - Returns: The registration that the caller has to arm, or `nil` if nothing has to be armed.
   mutating func cancel(_ id: IOOperationID) -> Registration? {
     guard let fileDescriptor = self.fileDescriptors.removeValue(forKey: id),
-      var pending = self.pendingOperations[fileDescriptor]
+      var pending = unsafe self.pendingOperations[fileDescriptor]
     else {
       // The operation completed already.
       return nil
     }
 
-    if pending.read?.id == id {
-      pending.read = nil
-    } else if pending.write?.id == id {
-      pending.write = nil
+    if unsafe pending.read?.id == id {
+      unsafe pending.read = nil
+    } else if unsafe pending.write?.id == id {
+      unsafe pending.write = nil
     } else {
       return nil
     }
 
     self.resolve(id, with: .failure(IOError(code: .cancelled)))
-    return self.store(pending, for: fileDescriptor)
+    return unsafe self.store(pending, for: fileDescriptor)
   }
 
   // MARK: - Reporting results
@@ -344,8 +345,8 @@ struct ReadinessOperations: ~Copyable {
   /// - Parameter event: The event that the backend reported.
   /// - Returns: The registration that the caller has to arm, or `nil` if nothing waits on the file descriptor anymore.
   mutating func handle(_ event: ReadinessEvent) -> Registration? {
-    guard var pending = self.pendingOperations[event.fileDescriptor],
-      pending.registrationID == event.registrationID
+    guard var pending = unsafe self.pendingOperations[event.fileDescriptor],
+      unsafe pending.registrationID == event.registrationID
     else {
       // The event belongs to a registration that is gone, for example because
       // the file descriptor was closed and has been recycled since.
@@ -355,13 +356,13 @@ struct ReadinessOperations: ~Copyable {
     // A file descriptor has at most one read and one write pending,
     // so each direction is handled on its own.
     if event.isReadable || event.isError {
-      self.performPending(.read, of: &pending)
+      unsafe self.performPending(.read, of: &pending)
     }
     if event.isWritable || event.isError {
-      self.performPending(.write, of: &pending)
+      unsafe self.performPending(.write, of: &pending)
     }
 
-    return self.store(pending, for: event.fileDescriptor)
+    return unsafe self.store(pending, for: event.fileDescriptor)
   }
 
   /// Performs the operation that waits in the given direction, if there is one.
@@ -370,17 +371,17 @@ struct ReadinessOperations: ~Copyable {
   ///   - direction: The direction that became ready.
   ///   - pending: The operations that wait on the file descriptor.
   private mutating func performPending(_ direction: ReadinessInterest, of pending: inout PendingOperations) {
-    guard let operation = pending.pending(direction) else {
+    guard let operation = unsafe pending.pending(direction) else {
       return
     }
-    guard let result = Self.perform(operation.operation) else {
+    guard let result = unsafe Self.perform(operation.operation) else {
       // The file descriptor was reported as ready but the operation
       // would still block, so it waits again.
       return
     }
-    pending.setPending(nil, direction)
-    self.fileDescriptors.removeValue(forKey: operation.id)
-    self.resolve(operation.id, with: result)
+    unsafe pending.setPending(nil, direction)
+    unsafe self.fileDescriptors.removeValue(forKey: operation.id)
+    unsafe self.resolve(operation.id, with: result)
   }
 
   // MARK: - Registering
@@ -390,14 +391,14 @@ struct ReadinessOperations: ~Copyable {
     _ pending: PendingOperations,
     for fileDescriptor: CInt
   ) -> Registration? {
-    let interest = pending.interest
+    let interest = unsafe pending.interest
     guard !interest.isEmpty else {
-      self.pendingOperations.removeValue(forKey: fileDescriptor)
+      unsafe self.pendingOperations.removeValue(forKey: fileDescriptor)
       return nil
     }
 
-    self.pendingOperations[fileDescriptor] = pending
-    return Registration(
+    unsafe self.pendingOperations[fileDescriptor] = unsafe pending
+    return unsafe Registration(
       fileDescriptor: fileDescriptor,
       interest: interest,
       registrationID: pending.registrationID
@@ -409,16 +410,14 @@ struct ReadinessOperations: ~Copyable {
     on fileDescriptor: CInt,
     with error: IOError
   ) {
-    guard let pending = self.pendingOperations.removeValue(forKey: fileDescriptor) else {
+    guard let pending = unsafe self.pendingOperations.removeValue(forKey: fileDescriptor) else {
       return
     }
 
-    for operation in [pending.read, pending.write] {
-      guard let operation else {
-        continue
-      }
-      self.fileDescriptors.removeValue(forKey: operation.id)
-      self.resolve(operation.id, with: .failure(error))
+    let ids = unsafe [pending.read?.id, pending.write?.id]
+    for case let id? in ids {
+      self.fileDescriptors.removeValue(forKey: id)
+      self.resolve(id, with: .failure(error))
     }
   }
 
@@ -427,10 +426,10 @@ struct ReadinessOperations: ~Copyable {
   /// - Parameter fileDescriptor: The file descriptor to return the registration of.
   /// - Returns: The registration to arm, or `nil` if nothing waits on the file descriptor anymore.
   func registration(for fileDescriptor: CInt) -> Registration? {
-    guard let pending = self.pendingOperations[fileDescriptor] else {
+    guard let pending = unsafe self.pendingOperations[fileDescriptor] else {
       return nil
     }
-    return Registration(
+    return unsafe Registration(
       fileDescriptor: fileDescriptor,
       interest: pending.interest,
       registrationID: pending.registrationID

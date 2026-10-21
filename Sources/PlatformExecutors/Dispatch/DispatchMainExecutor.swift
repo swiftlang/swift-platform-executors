@@ -34,7 +34,7 @@ package class DispatchMainExecutor: MainExecutor, @unchecked Sendable {
   }
 
   package func enqueue(_ job: consuming ExecutorJob) {
-    _dispatchEnqueueMain(
+    unsafe _dispatchEnqueueMain(
       _Concurrency.UnownedJob(job),
       serialExecutor: self.asUnownedSerialExecutor()
     )

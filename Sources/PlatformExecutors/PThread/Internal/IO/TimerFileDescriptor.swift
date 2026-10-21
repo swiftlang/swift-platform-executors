@@ -38,7 +38,7 @@ internal enum TimerFileDescriptor {
     oldValue: UnsafeMutablePointer<itimerspec>?
   ) throws {
     _ = try retryingSyscall(blocking: false) {
-      CPlatformExecutors.timerfd_settime(fd, flags, newValue, oldValue)
+      unsafe CPlatformExecutors.timerfd_settime(fd, flags, newValue, oldValue)
     }
   }
 
@@ -53,7 +53,7 @@ internal enum TimerFileDescriptor {
     size: size_t
   ) throws -> IOResult<ssize_t> {
     try syscallForbiddingEINVAL {
-      read(descriptor, pointer, size)
+      unsafe read(descriptor, pointer, size)
     }
   }
 }

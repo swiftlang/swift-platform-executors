@@ -129,13 +129,13 @@ enum PlatformIOBackend: ~Copyable {
     switch handle {
     #if canImport(Darwin)
     case .kqueue:
-      return KQueueReadinessBackend.attempt(operation)
+      return unsafe KQueueReadinessBackend.attempt(operation)
     #elseif canImport(Glibc)
     case .epoll:
-      return EpollReadinessBackend.attempt(operation)
+      return unsafe EpollReadinessBackend.attempt(operation)
     #if ExperimentalIOUring
     case .ioUring:
-      return IOUringBackend.attempt(operation)
+      return unsafe IOUringBackend.attempt(operation)
     #endif
     #elseif os(WASI)
     case .condition:
@@ -153,15 +153,15 @@ enum PlatformIOBackend: ~Copyable {
     switch consume self {
     #if canImport(Darwin)
     case .kqueue(var backend):
-      backend.submit(operation, id: id)
+      unsafe backend.submit(operation, id: id)
       self = .kqueue(backend)
     #elseif canImport(Glibc)
     case .epoll(var backend):
-      backend.submit(operation, id: id)
+      unsafe backend.submit(operation, id: id)
       self = .epoll(backend)
     #if ExperimentalIOUring
     case .ioUring(var backend):
-      backend.submit(operation, id: id)
+      unsafe backend.submit(operation, id: id)
       self = .ioUring(backend)
     #endif
     #elseif os(WASI)

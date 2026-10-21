@@ -38,7 +38,7 @@ package final class PThreadMainExecutor: SerialExecutor, @unchecked Sendable {
   package init() {
     self.pThreadExecutor = PThreadExecutor()
     // The jobs run isolated to this executor.
-    self.pThreadExecutor.executionContext = .serial(self.asUnownedSerialExecutor())
+    self.pThreadExecutor.executionContext = unsafe .serial(self.asUnownedSerialExecutor())
   }
 
   package func enqueue(_ job: UnownedJob) {
@@ -60,7 +60,7 @@ package final class PThreadMainExecutor: SerialExecutor, @unchecked Sendable {
 #if !canImport(Darwin)
 extension PThreadMainExecutor: MainExecutor {}
 extension PThreadMainExecutor: SchedulingExecutor {
-  package var asSchedulingExecutor: SchedulingExecutor? {
+  package var asSchedulingExecutor: (any SchedulingExecutor)? {
     return self
   }
 

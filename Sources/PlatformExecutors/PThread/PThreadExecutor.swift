@@ -68,6 +68,7 @@ import Darwin
 #else
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
 #endif
+@safe
 package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   /// The mechanism that performs this executor's I/O.
   typealias Backend = PlatformIOBackend
@@ -76,6 +77,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   // TODO: We should drop the TaskExecutor conformance of PThreadExecutor
   // in the future and also support passing both a serial and task executor
   // once the runtime fixes its execution context handling.
+  @safe
   enum ExecutionContext {
     case thisExecutor
     case task(UnownedTaskExecutor)
@@ -83,14 +85,14 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   }
 
   /// This is the state that is accessed from multiple threads; hence, it must be protected via a lock.
-  private struct MultiThreadedState: ~Copyable {
+  @safe private struct MultiThreadedState: ~Copyable {
     /// Indicates if we are running and about to pop more jobs. If this is true then we don't have to wake the selector.
     var pendingJobPop = false
     /// The condition variable that gets signalled once the thread is stopped.
     var stopConditionVariable: ConditionVariable<Bool>? = nil
     #if ExperimentalIO && !os(WASI)
     /// The I/O work that other threads handed to the executor's thread.
-    var submittedIOCommands = UniqueDeque<SubmittedIOCommand>()
+    var submittedIOCommands = unsafe UniqueDeque<SubmittedIOCommand>()
     #endif
     /// This is the queue of enqueued jobs for the continuous clock.
     var continuousClockJobs: NonCopyablePriorityQueue<(ContinuousClock.Instant, UnownedJob)> = {
@@ -109,7 +111,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   }
 
   /// This is the state that is bound to this thread.
-  struct ThreadBoundState: ~Copyable {
+  @safe struct ThreadBoundState: ~Copyable {
     /// The backing storage for the backend.
     var _backend: Backend
 
@@ -126,7 +128,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
 
     #if ExperimentalIO && !os(WASI)
     /// The backing storage of the next submitted I/O commands.
-    fileprivate var _nextSubmittedIOCommands = UniqueDeque<SubmittedIOCommand>()
+    fileprivate var _nextSubmittedIOCommands = unsafe UniqueDeque<SubmittedIOCommand>()
 
     /// The backing storage of the in-flight I/O operations.
     ///
@@ -206,11 +208,11 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   private var nextSubmittedIOCommands: UniqueDeque<SubmittedIOCommand> {
     _read {
       assert(self.onExecutor)
-      yield self._threadBoundState._nextSubmittedIOCommands
+      yield unsafe self._threadBoundState._nextSubmittedIOCommands
     }
     _modify {
       assert(self.onExecutor)
-      yield &self._threadBoundState._nextSubmittedIOCommands
+      yield unsafe &self._threadBoundState._nextSubmittedIOCommands
     }
   }
 
@@ -300,7 +302,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     body: (PThreadExecutor) async throws(Failure) -> Return
   ) async throws(Failure) -> Return {
     do {
-      return try await self._withExecutor(
+      return try await unsafe self._withExecutor(
         name: name,
         stackSize: stackSize,
         taskExecutor: nil,
@@ -323,7 +325,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     ioBackend: PThreadIOBackend = .platformDefault,
     body: (PThreadExecutor) async throws -> Return
   ) async rethrows -> Return {
-    let executor = PThreadExecutor(
+    let executor = unsafe PThreadExecutor(
       name: name,
       stackSize: stackSize,
       serialExecutor: serialExecutor,
@@ -352,14 +354,14 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     // to the run methods otherwise the Concurrency runtime will re-enqueue
     // the task over and over again. If this executor is part of a thread pool
     // then we must pass the pool as the executor.
-    if let taskExecutor, let serialExecutor {
+    if unsafe taskExecutor != nil, unsafe serialExecutor != nil {
       // TODO: This is currently not supported because the runtime doesn't handle
       // it correctly.
       fatalError("Currently not supported to run as both serial and task executor")
-    } else if let taskExecutor {
-      self.executionContext = .task(taskExecutor)
-    } else if let serialExecutor {
-      self.executionContext = .serial(serialExecutor)
+    } else if let taskExecutor = unsafe taskExecutor {
+      self.executionContext = unsafe .task(taskExecutor)
+    } else if let serialExecutor = unsafe serialExecutor {
+      self.executionContext = unsafe .serial(serialExecutor)
     }
 
     let conditionVariable = ConditionVariable(true)
@@ -411,7 +413,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     )
     #if ExperimentalIO && !os(WASI)
     precondition(
-      self._multiThreadedState.withLock { $0.submittedIOCommands.isEmpty },
+      self._multiThreadedState.withLock { unsafe $0.submittedIOCommands.isEmpty },
       "PThreadExecutor had left over submitted I/O commands when deiniting."
     )
     #endif
@@ -428,7 +430,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
 
     // The job is its own node.
     let unownedJob = UnownedJob(job)
-    let address = unsafeBitCast(unownedJob, to: UInt.self)
+    let address = unsafe unsafeBitCast(unownedJob, to: UInt.self)
     var head = self.inbox.load(ordering: .relaxed)
     while true {
       var node = ExecutorJob(unownedJob)
@@ -465,7 +467,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
       return
     }
     while cursor != 0 {
-      let job = unsafeBitCast(cursor, to: UnownedJob.self)
+      let job = unsafe unsafeBitCast(cursor, to: UnownedJob.self)
       cursor = ExecutorJob(job).inboxNext
       self.jobs.push(job)
     }
@@ -549,12 +551,12 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
   internal func makeJobRunner() -> (UnownedJob) -> Void {
     switch self.executionContext {
     case .thisExecutor:
-      let taskExecutor = self.asUnownedTaskExecutor()
-      return { job in job.runSynchronously(on: taskExecutor) }
+      let taskExecutor = unsafe self.asUnownedTaskExecutor()
+      return { job in unsafe job.runSynchronously(on: taskExecutor) }
     case .task(let taskExecutor):
-      return { job in job.runSynchronously(on: taskExecutor) }
+      return { job in unsafe job.runSynchronously(on: taskExecutor) }
     case .serial(let serialExecutor):
-      return { job in job.runSynchronously(on: serialExecutor) }
+      return { job in unsafe job.runSynchronously(on: serialExecutor) }
     }
   }
 
@@ -640,12 +642,11 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
 
             #if ExperimentalIO && !os(WASI)
             // We got some I/O commands that we should apply.
-            swap(&state.submittedIOCommands, &self.nextSubmittedIOCommands)
+            unsafe swap(&state.submittedIOCommands, &self.nextSubmittedIOCommands)
             #endif
 
             // We were flagged to stop so we need to exit this loop
-            if let stopConditionVariable = state.stopConditionVariable {
-              state.stopConditionVariable = nil
+            if let stopConditionVariable = state.stopConditionVariable.take() {
               return (stopConditionVariable, false, nil, nil)
             }
             // We got some jobs that we should execute. Let's copy them over so we can
@@ -839,7 +840,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
 #if !canImport(Darwin)
 @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
 extension PThreadExecutor: SchedulingExecutor {
-  package var asSchedulingExecutor: SchedulingExecutor? {
+  package var asSchedulingExecutor: (any SchedulingExecutor)? {
     return self
   }
 
@@ -893,7 +894,7 @@ extension PThreadExecutor: CustomStringConvertible {
 
 /// I/O work that another thread submitted to the executor's thread.
 @available(anyAppleOS 27.0, *)
-internal enum SubmittedIOCommand: ~Copyable, Sendable {
+@unsafe internal enum SubmittedIOCommand: ~Copyable, Sendable {
   /// Submit the operation to the backend, resuming the given resumption once it completes.
   case submit(IOOperation, IOOperationID, PThreadExecutor.Resumption)
 
@@ -1014,26 +1015,26 @@ extension PThreadExecutor {
     /// Creates a resumer whose resumed tasks run inline if they run on the given task executor.
     init(taskExecutor: UnownedTaskExecutor) {
       self.resumeConnection = { continuation, result in
-        continuation.resume(with: result, on: taskExecutor)
+        unsafe continuation.resume(with: result, on: taskExecutor)
       }
       self.resumeByteCount = { continuation, result in
-        continuation.resume(with: result, on: taskExecutor)
+        unsafe continuation.resume(with: result, on: taskExecutor)
       }
       self.resumeVoid = { continuation, result in
-        continuation.resume(with: result, on: taskExecutor)
+        unsafe continuation.resume(with: result, on: taskExecutor)
       }
     }
 
     /// Creates a resumer whose resumed tasks run inline if they are isolated to the given serial executor.
     init(serialExecutor: UnownedSerialExecutor) {
       self.resumeConnection = { continuation, result in
-        continuation.resume(with: result, isolatedTo: serialExecutor)
+        unsafe continuation.resume(with: result, isolatedTo: serialExecutor)
       }
       self.resumeByteCount = { continuation, result in
-        continuation.resume(with: result, isolatedTo: serialExecutor)
+        unsafe continuation.resume(with: result, isolatedTo: serialExecutor)
       }
       self.resumeVoid = { continuation, result in
-        continuation.resume(with: result, isolatedTo: serialExecutor)
+        unsafe continuation.resume(with: result, isolatedTo: serialExecutor)
       }
     }
   }
@@ -1042,11 +1043,11 @@ extension PThreadExecutor {
   internal func makeContinuationResumer() -> ContinuationResumer {
     switch self.executionContext {
     case .thisExecutor:
-      return ContinuationResumer(taskExecutor: self.asUnownedTaskExecutor())
+      return unsafe ContinuationResumer(taskExecutor: self.asUnownedTaskExecutor())
     case .task(let taskExecutor):
-      return ContinuationResumer(taskExecutor: taskExecutor)
+      return unsafe ContinuationResumer(taskExecutor: taskExecutor)
     case .serial(let serialExecutor):
-      return ContinuationResumer(serialExecutor: serialExecutor)
+      return unsafe ContinuationResumer(serialExecutor: serialExecutor)
     }
   }
 }
@@ -1071,7 +1072,7 @@ extension PThreadExecutor {
       of: Success.self,
       throwing: IOError.self
     ) { (continuation, awaiter) async throws(IOError) -> Success in
-      guard let id = self.submit(operation, resuming: resumption(continuation)) else {
+      guard let id = unsafe self.submit(operation, resuming: resumption(continuation)) else {
         // The operation completed synchronously, so there is nothing
         // to cancel and no reason to install the handlers.
         return try await awaiter.wait()
@@ -1094,7 +1095,7 @@ extension PThreadExecutor {
     resuming resumption: consuming Resumption
   ) -> IOOperationID? {
     // We first try to attempt the operation if it can be done synchronously.
-    if let result = Backend.attempt(operation, handle: self.wakeupHandle) {
+    if let result = unsafe Backend.attempt(operation, handle: self.wakeupHandle) {
       resumption.resume(with: result)
       return nil
     }
@@ -1106,9 +1107,9 @@ extension PThreadExecutor {
     // If we are on the executor we can submit right away otherwise
     // we have to enqueue it and let the next tick pick it up.
     if self.onExecutor {
-      self.threadBoundState.submit(operation, id: id, resuming: resumption)
+      unsafe self.threadBoundState.submit(operation, id: id, resuming: resumption)
     } else {
-      self.enqueue(.submit(operation, id, resumption))
+      unsafe self.enqueue(.submit(operation, id, resumption))
     }
 
     return id
@@ -1116,9 +1117,9 @@ extension PThreadExecutor {
 
   /// Hands the work to the executor's thread.
   private func enqueue(_ submitted: consuming SubmittedIOCommand) {
-    var submitted = Optional(consume submitted)
+    var submitted = unsafe Optional(consume submitted)
     self.modifyMultiThreadedStateAndWakeUpIfNeeded { state in
-      state.submittedIOCommands.append(submitted.take()!)
+      unsafe state.submittedIOCommands.append(submitted.take()!)
     }
   }
 
@@ -1131,7 +1132,7 @@ extension PThreadExecutor {
     if self.onExecutor && self.threadBoundState.cancelIfInFlight(id) {
       return
     }
-    self.enqueue(.cancel(id))
+    unsafe self.enqueue(.cancel(id))
   }
 
   /// Escalates the priority of the operation with the given identity.
@@ -1180,7 +1181,7 @@ extension PThreadExecutor.ThreadBoundState {
     guard case .none = consume rejected else {
       fatalError("An operation was submitted with the identity of one that is still in flight")
     }
-    self._backend.submit(operation, id: id)
+    unsafe self._backend.submit(operation, id: id)
   }
 
   /// Cancels the operation with the given identity if it reached the backend and has not completed.
@@ -1197,10 +1198,10 @@ extension PThreadExecutor.ThreadBoundState {
 
   /// Applies the I/O commands that other threads enqueued, in the order they were enqueued.
   fileprivate mutating func applySubmittedIOCommands() {
-    while let submitted = self._nextSubmittedIOCommands.popFirst() {
-      switch consume submitted {
+    while let submitted = unsafe self._nextSubmittedIOCommands.popFirst() {
+      switch unsafe consume submitted {
       case .submit(let operation, let id, let resumption):
-        self.submit(operation, id: id, resuming: resumption)
+        unsafe self.submit(operation, id: id, resuming: resumption)
       case .cancel(let id):
         // A cancellation can arrive after its operation completed
         // so we filter out anything that is no longer in-flight.

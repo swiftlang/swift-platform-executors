@@ -47,11 +47,10 @@ struct Example {
     // Dispatch implementation
     //    await self.runGroup(executor: DispatchQueue.global())
     await Run(
-      executor: DispatchSerialQueue(label: "Serial Queue")
-        as! (
-          any SerialExecutor
-        )  // The conformance to SerialExecutor is availaiblity gated but the
-      // compiler isn't capable of finding it in a #if
+      // The conformance to SerialExecutor is availaiblity gated but the
+      // compiler isn't capable of finding it in a #if. Going through `AnyObject`
+      // keeps the cast from being diagnosed as always succeeding where it is available.
+      executor: (DispatchSerialQueue(label: "Serial Queue") as AnyObject) as! (any SerialExecutor)
     ).run()
     await self.run(executor: DispatchGlobalTaskExecutor())
     await self.runGroup(executor: DispatchGlobalTaskExecutor())
@@ -72,14 +71,14 @@ struct Example {
 
   @concurrent
   static func run(
-    executor: TaskExecutor?,
+    executor: (any TaskExecutor)?,
     iterations: Int = 10_000_000
   ) async {
     let duration = await ContinuousClock().measure {
       await withTaskExecutorPreference(executor) {
         for _ in 0..<iterations {
-          await withUnsafeContinuation { cont in
-            cont.resume()
+          await unsafe withUnsafeContinuation { cont in
+            unsafe cont.resume()
           }
         }
       }
@@ -92,7 +91,7 @@ struct Example {
 
   @concurrent
   static func runGroup(
-    executor: TaskExecutor?,
+    executor: (any TaskExecutor)?,
     childTasks: Int = 10,
     iterations: Int = 10_000_000
   ) async {
@@ -102,8 +101,8 @@ struct Example {
           for _ in 0..<childTasks {
             group.addTask {
               for _ in 0..<iterations {
-                await withUnsafeContinuation { cont in
-                  cont.resume()
+                await unsafe withUnsafeContinuation { cont in
+                  unsafe cont.resume()
                 }
               }
             }
@@ -119,7 +118,7 @@ struct Example {
 
   @concurrent
   static func runSleeps(
-    executor: TaskExecutor?,
+    executor: (any TaskExecutor)?,
     iterations: Int = 100000
   ) async {
     let duration = await ContinuousClock().measure {
@@ -140,7 +139,7 @@ struct Example {
 @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
 actor Run {
   nonisolated var unownedExecutor: UnownedSerialExecutor {
-    self.executor.asUnownedSerialExecutor()
+    unsafe self.executor.asUnownedSerialExecutor()
   }
   private let executor: any SerialExecutor
 
@@ -153,8 +152,8 @@ actor Run {
   ) async {
     let duration = await ContinuousClock().measure {
       for _ in 0..<iterations {
-        await withUnsafeContinuation { cont in
-          cont.resume()
+        await unsafe withUnsafeContinuation { cont in
+          unsafe cont.resume()
         }
       }
     }

@@ -97,7 +97,7 @@ struct TCPSocketTests {
             let listener = try await TCPListener.bind(to: Self.loopback)
 
             // The task is cancelled before the accept is submitted.
-            withUnsafeCurrentTask { $0?.cancel() }
+            unsafe withUnsafeCurrentTask { unsafe $0?.cancel() }
             let error = await #expect(throws: IOError.self) {
               let socket = try await listener.accept()
               try await socket.close()
@@ -388,13 +388,13 @@ extension TCPConnection {
     // The buffer has to stay alive while the read is in flight so we heap alloc here.
     let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: count, alignment: 1)
     defer {
-      buffer.deallocate()
+      unsafe buffer.deallocate()
     }
 
-    var output = OutputRawSpan(buffer: buffer, initializedCount: 0)
+    var output = unsafe OutputRawSpan(buffer: buffer, initializedCount: 0)
     let received = try await self.read(into: &output)
-    _ = output.finalize(for: buffer)
-    return Array(UnsafeRawBufferPointer(rebasing: buffer[..<received]))
+    _ = unsafe output.finalize(for: buffer)
+    return unsafe Array(UnsafeRawBufferPointer(rebasing: buffer[..<received]))
   }
 
   /// Reads until the peer closed its side of the connection.
@@ -402,20 +402,20 @@ extension TCPConnection {
     // The buffer has to stay alive while the read is in flight so we heap alloc here.
     let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: 1024, alignment: 1)
     defer {
-      buffer.deallocate()
+      unsafe buffer.deallocate()
     }
 
     var received = [UInt8]()
     while true {
-      var output = OutputRawSpan(buffer: buffer, initializedCount: 0)
+      var output = unsafe OutputRawSpan(buffer: buffer, initializedCount: 0)
       let count = try await self.read(into: &output)
-      let initializedCount = output.finalize(for: buffer)
+      let initializedCount = unsafe output.finalize(for: buffer)
       #expect(initializedCount == count)
 
       if count == 0 {
         return received
       }
-      received += UnsafeRawBufferPointer(rebasing: buffer[..<count])
+      unsafe received += UnsafeRawBufferPointer(rebasing: buffer[..<count])
     }
   }
 }
@@ -427,17 +427,17 @@ extension TCPConnection {
     // The buffer has to stay alive while the read is in flight so we heap alloc here.
     let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: 64 * 1024, alignment: 1)
     defer {
-      buffer.deallocate()
+      unsafe buffer.deallocate()
     }
 
     while true {
-      var output = OutputRawSpan(buffer: buffer, initializedCount: 0)
+      var output = unsafe OutputRawSpan(buffer: buffer, initializedCount: 0)
       let count = try await self.read(into: &output)
-      _ = output.finalize(for: buffer)
+      _ = unsafe output.finalize(for: buffer)
       if count == 0 {
         return
       }
-      try await self.write(from: RawSpan(_unsafeBytes: UnsafeRawBufferPointer(rebasing: buffer[..<count])))
+      try await unsafe self.write(from: RawSpan(_unsafeBytes: UnsafeRawBufferPointer(rebasing: buffer[..<count])))
     }
   }
 }
@@ -449,18 +449,18 @@ extension TCPConnection.ReadHalf {
     // The buffer has to stay alive while the read is in flight so we heap alloc here.
     let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: 64 * 1024, alignment: 1)
     defer {
-      buffer.deallocate()
+      unsafe buffer.deallocate()
     }
 
     var received = [UInt8]()
     while true {
-      var output = OutputRawSpan(buffer: buffer, initializedCount: 0)
+      var output = unsafe OutputRawSpan(buffer: buffer, initializedCount: 0)
       let count = try await self.read(into: &output)
-      _ = output.finalize(for: buffer)
+      _ = unsafe output.finalize(for: buffer)
       if count == 0 {
         return received
       }
-      received += UnsafeRawBufferPointer(rebasing: buffer[..<count])
+      unsafe received += UnsafeRawBufferPointer(rebasing: buffer[..<count])
     }
   }
 }

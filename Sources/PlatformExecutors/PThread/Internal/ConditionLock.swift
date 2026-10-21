@@ -40,7 +40,8 @@ import wasi_pthread
 #error("The concurrency lock module was unable to identify your C library.")
 #endif
 
-final class ConditionVariable<Value: ~Copyable> {
+@safe
+final class ConditionVariable<Value: ~Copyable>: @unchecked Sendable {
   #if os(Windows)
   typealias LockType = SRWLOCK
   typealias ConditionVariableType = CONDITION_VARIABLE
@@ -57,13 +58,13 @@ final class ConditionVariable<Value: ~Copyable> {
   private nonisolated(unsafe) let condition = UnsafeMutablePointer<ConditionVariableType>.allocate(capacity: 1)
 
   init(_ state: consuming sending Value) {
-    self.state = state
+    unsafe self.state = state
     #if os(Windows)
     InitializeSRWLock(lock)
     InitializeConditionVariable(condition)
     #else
-    pthread_mutex_init(lock, nil)
-    pthread_cond_init(condition, nil)
+    unsafe pthread_mutex_init(lock, nil)
+    unsafe pthread_cond_init(condition, nil)
     #endif
   }
 
@@ -71,7 +72,7 @@ final class ConditionVariable<Value: ~Copyable> {
     #if os(Windows)
     AcquireSRWLockExclusive(lock)
     #else
-    pthread_mutex_lock(lock)
+    unsafe pthread_mutex_lock(lock)
     #endif
   }
 
@@ -79,7 +80,7 @@ final class ConditionVariable<Value: ~Copyable> {
     #if os(Windows)
     ReleaseSRWLockExclusive(lock)
     #else
-    pthread_mutex_unlock(lock)
+    unsafe pthread_mutex_unlock(lock)
     #endif
   }
 
@@ -87,7 +88,7 @@ final class ConditionVariable<Value: ~Copyable> {
     #if os(Windows)
     WakeConditionVariable(condition)
     #else
-    pthread_cond_signal(condition)
+    unsafe pthread_cond_signal(condition)
     #endif
   }
 
@@ -95,7 +96,7 @@ final class ConditionVariable<Value: ~Copyable> {
     #if os(Windows)
     WakeAllConditionVariable(condition)
     #else
-    pthread_cond_broadcast(condition)
+    unsafe pthread_cond_broadcast(condition)
     #endif
   }
 
@@ -103,7 +104,7 @@ final class ConditionVariable<Value: ~Copyable> {
     #if os(Windows)
     SleepConditionVariableSRW(condition, lock, INFINITE, 0)
     #else
-    pthread_cond_wait(condition, lock)
+    unsafe pthread_cond_wait(condition, lock)
     #endif
   }
 
@@ -167,7 +168,7 @@ final class ConditionVariable<Value: ~Copyable> {
     defer {
       self._signal()
     }
-    return try block(&state)
+    return try unsafe block(&state)
   }
 
   /// Runs the block while holding the lock, without signalling anybody.
@@ -180,7 +181,7 @@ final class ConditionVariable<Value: ~Copyable> {
     defer {
       self._unlock()
     }
-    return block(&state)
+    return unsafe block(&state)
   }
 
   /// Runs the block while holding the lock, and signals one waiter afterwards only if the block asks for it.
@@ -191,7 +192,7 @@ final class ConditionVariable<Value: ~Copyable> {
     defer {
       self._unlock()
     }
-    let (shouldSignal, result) = block(&state)
+    let (shouldSignal, result) = unsafe block(&state)
     if shouldSignal {
       self._signal()
     }
@@ -208,7 +209,7 @@ final class ConditionVariable<Value: ~Copyable> {
     defer {
       self._signalAll()
     }
-    return try block(&state)
+    return try unsafe block(&state)
   }
 
   func wait<Return: ~Copyable, Failure: Error>(
@@ -226,11 +227,11 @@ final class ConditionVariable<Value: ~Copyable> {
       self._unlock()
     }
     while true {
-      if when(&state) {
+      if unsafe when(&state) {
         break
       }
       self._wait()
     }
-    return try block(&state)
+    return try unsafe block(&state)
   }
 }

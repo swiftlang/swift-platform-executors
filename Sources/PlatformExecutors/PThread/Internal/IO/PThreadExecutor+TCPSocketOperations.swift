@@ -47,14 +47,14 @@ extension PThreadExecutor: TCPSocketOperationScheduler {
       storage.append(sockaddr_storage())
       var addresses = storage.mutableSpan
       let operation = addresses.withUnsafeMutableBufferPointer { buffer in
-        let addressLength = address.write(into: &buffer[0])
-        return IOOperation.connect(
+        let addressLength = unsafe address.write(into: &buffer[0])
+        return unsafe IOOperation.connect(
           socket: socket,
           address: UnsafeRawPointer(buffer.baseAddress!).assumingMemoryBound(to: sockaddr.self),
           addressLength: addressLength
         )
       }
-      return try await self.perform(operation) { continuation in
+      return try await unsafe self.perform(operation) { continuation in
         .connection(continuation, socket: socket, executorIndex: self.poolIndex)
       }
     }
@@ -74,7 +74,7 @@ extension PThreadExecutor: TCPSocketOperationScheduler {
   }
 
   package func accept(listener: borrowing TCPListener) async throws(IOError) -> TCPConnection {
-    try await self.perform(.accept(socket: listener.fileDescriptor)) { continuation in
+    try await unsafe self.perform(.accept(socket: listener.fileDescriptor)) { continuation in
       .acceptedConnection(continuation, executorIndex: self.poolIndex)
     }
   }
@@ -85,26 +85,26 @@ extension PThreadExecutor: TCPSocketOperationScheduler {
   ) async throws(IOError) -> Int {
     // The bytes are read into the free capacity of the buffer, which stays
     // alive while we are suspended since we hold the access to it.
-    let freeCapacity = buffer.withUnsafeMutableBytes { bytes, initializedCount in
-      UnsafeMutableRawBufferPointer(rebasing: bytes[initializedCount...])
+    let freeCapacity = unsafe buffer.withUnsafeMutableBytes { bytes, initializedCount in
+      unsafe UnsafeMutableRawBufferPointer(rebasing: bytes[initializedCount...])
     }
 
-    let count = try await self.perform(.read(socket: connection.fileDescriptor, buffer: freeCapacity)) {
+    let count = try await unsafe self.perform(.read(socket: connection.fileDescriptor, buffer: freeCapacity)) {
       continuation in
       .byteCount(continuation)
     }
 
     // The kernel wrote into the free capacity of the buffer so we have to
     // update the initialized count now.
-    buffer.withUnsafeMutableBytes { _, initializedCount in
+    unsafe buffer.withUnsafeMutableBytes { _, initializedCount in
       initializedCount += count
     }
     return count
   }
 
   package func write(connection: borrowing TCPConnection, from buffer: RawSpan) async throws(IOError) -> Int {
-    let bytes = buffer.withUnsafeBytes { $0 }
-    return try await self.perform(.write(socket: connection.fileDescriptor, buffer: bytes)) { continuation in
+    let bytes = buffer.withUnsafeBytes { unsafe $0 }
+    return try await unsafe self.perform(.write(socket: connection.fileDescriptor, buffer: bytes)) { continuation in
       .byteCount(continuation)
     }
   }
@@ -113,21 +113,21 @@ extension PThreadExecutor: TCPSocketOperationScheduler {
     connection: borrowing TCPConnection,
     direction: SocketShutdownDirection
   ) async throws(IOError) {
-    try await self.perform(.shutdown(socket: connection.fileDescriptor, direction: direction)) { continuation in
+    try await unsafe self.perform(.shutdown(socket: connection.fileDescriptor, direction: direction)) { continuation in
       .void(continuation)
     }
   }
 
   package func close(connection: consuming TCPConnection) async throws(IOError) {
     let fileDescriptor = connection.takeFileDescriptor()
-    try await self.perform(.close(fileDescriptor: fileDescriptor)) { continuation in
+    try await unsafe self.perform(.close(fileDescriptor: fileDescriptor)) { continuation in
       .void(continuation)
     }
   }
 
   package func close(listener: consuming TCPListener) async throws(IOError) {
     let fileDescriptor = listener.takeFileDescriptor()
-    try await self.perform(.close(fileDescriptor: fileDescriptor)) { continuation in
+    try await unsafe self.perform(.close(fileDescriptor: fileDescriptor)) { continuation in
       .void(continuation)
     }
   }

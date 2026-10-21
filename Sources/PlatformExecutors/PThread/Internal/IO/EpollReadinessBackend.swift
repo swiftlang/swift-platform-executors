@@ -32,6 +32,7 @@ internal import BasicContainers
 
 /// An I/O mechanism that uses epoll for eventing.
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+@safe
 struct EpollReadinessBackend: ~Copyable {
   /// User data supports (un)packing into an `UInt64` because epoll has a user info field that we can attach which is
   /// up to 64 bits wide. We're using all of those 64 bits, 32 for a "registration ID" and 32 for the file descriptor.
@@ -75,7 +76,7 @@ struct EpollReadinessBackend: ~Copyable {
   private var operations = ReadinessOperations()
 
   /// The events buffer.
-  private var events = UniqueArray<Epoll.epoll_event>(
+  private var events = unsafe UniqueArray<Epoll.epoll_event>(
     minimumCapacity: IOOperation.reservedCapacity
   )
   #endif
@@ -101,45 +102,45 @@ struct EpollReadinessBackend: ~Copyable {
       flags: Int32(TimerFileDescriptor.TFD_CLOEXEC | TimerFileDescriptor.TFD_NONBLOCK)
     )
 
-    var ev = Epoll.epoll_event()
-    ev.events = Epoll.EPOLLERR | Epoll.EPOLLHUP | Epoll.EPOLLIN
-    ev.data.u64 = UInt64(
+    var ev = unsafe Epoll.epoll_event()
+    unsafe ev.events = Epoll.EPOLLERR | Epoll.EPOLLHUP | Epoll.EPOLLIN
+    unsafe ev.data.u64 = UInt64(
       UserData(
         registrationID: .max,
         fileDescriptor: self.eventFD
       )
     )
-    try Epoll.epoll_ctl(
+    try unsafe Epoll.epoll_ctl(
       epfd: self.epollFD,
       op: Epoll.EPOLL_CTL_ADD,
       fd: self.eventFD,
       event: &ev
     )
 
-    var monotonicTimerev = Epoll.epoll_event()
-    monotonicTimerev.events = Epoll.EPOLLIN | Epoll.EPOLLERR | Epoll.EPOLLRDHUP
-    monotonicTimerev.data.u64 = UInt64(
+    var monotonicTimerev = unsafe Epoll.epoll_event()
+    unsafe monotonicTimerev.events = Epoll.EPOLLIN | Epoll.EPOLLERR | Epoll.EPOLLRDHUP
+    unsafe monotonicTimerev.data.u64 = UInt64(
       UserData(
         registrationID: .max,
         fileDescriptor: self.monotonicTimerFD
       )
     )
-    try Epoll.epoll_ctl(
+    try unsafe Epoll.epoll_ctl(
       epfd: self.epollFD,
       op: Epoll.EPOLL_CTL_ADD,
       fd: self.monotonicTimerFD,
       event: &monotonicTimerev
     )
 
-    var boottimeTimerev = Epoll.epoll_event()
-    boottimeTimerev.events = Epoll.EPOLLIN | Epoll.EPOLLERR | Epoll.EPOLLRDHUP
-    boottimeTimerev.data.u64 = UInt64(
+    var boottimeTimerev = unsafe Epoll.epoll_event()
+    unsafe boottimeTimerev.events = Epoll.EPOLLIN | Epoll.EPOLLERR | Epoll.EPOLLRDHUP
+    unsafe boottimeTimerev.data.u64 = UInt64(
       UserData(
         registrationID: .max,
         fileDescriptor: self.boottimeTimerFD
       )
     )
-    try Epoll.epoll_ctl(
+    try unsafe Epoll.epoll_ctl(
       epfd: self.epollFD,
       op: Epoll.EPOLL_CTL_ADD,
       fd: self.boottimeTimerFD,
@@ -211,7 +212,7 @@ struct EpollReadinessBackend: ~Copyable {
     // A timespec has nanosecond precision, so a duration below that
     // would round down to zero, which disarms the timer.
     ts.it_value = timespec(duration: max(duration, .nanoseconds(1)))
-    try TimerFileDescriptor.timerfd_settime(fd: timerFD, flags: 0, newValue: &ts, oldValue: nil)
+    try unsafe TimerFileDescriptor.timerfd_settime(fd: timerFD, flags: 0, newValue: &ts, oldValue: nil)
   }
 
   /// Waits for events and writes them into the given output span.
@@ -220,9 +221,9 @@ struct EpollReadinessBackend: ~Copyable {
     timeout: CInt,
     into events: inout OutputSpan<Epoll.epoll_event>
   ) throws {
-    try events.withUnsafeMutableBufferPointer { buffer, initializedCount in
+    try unsafe events.withUnsafeMutableBufferPointer { buffer, initializedCount in
       assert(initializedCount == 0, "The events can only be written into an empty buffer")
-      initializedCount = Int(
+      initializedCount = unsafe Int(
         try Epoll.epoll_wait(
           epfd: epollFD,
           events: buffer.baseAddress!,
@@ -239,19 +240,19 @@ struct EpollReadinessBackend: ~Copyable {
   /// - Returns: The readiness of a file descriptor that an operation waits on, or `nil` if the event was one of
   ///   this backend's own.
   private mutating func process(_ ev: Epoll.epoll_event) throws -> ReadinessEvent? {
-    let epollUserData = UserData(rawValue: ev.data.u64)
+    let epollUserData = unsafe UserData(rawValue: ev.data.u64)
     let fd = epollUserData.fileDescriptor
     _ = epollUserData.registrationID
     switch fd {
     case self.eventFD:
       // Consume event
       var val = EventFileDescriptor.eventfd_t()
-      _ = try EventFileDescriptor.eventfd_read(fd: self.eventFD, value: &val)
+      _ = try unsafe EventFileDescriptor.eventfd_read(fd: self.eventFD, value: &val)
     case self.monotonicTimerFD:
       // Consume event
       var val: UInt64 = 0
       // We are not interested in the result
-      _ = try! TimerFileDescriptor.timerfd_read(
+      _ = try! unsafe TimerFileDescriptor.timerfd_read(
         descriptor: self.monotonicTimerFD,
         pointer: &val,
         size: MemoryLayout.size(ofValue: val)
@@ -263,7 +264,7 @@ struct EpollReadinessBackend: ~Copyable {
       // Consume event
       var val: UInt64 = 0
       // We are not interested in the result
-      _ = try! TimerFileDescriptor.timerfd_read(
+      _ = try! unsafe TimerFileDescriptor.timerfd_read(
         descriptor: self.boottimeTimerFD,
         pointer: &val,
         size: MemoryLayout.size(ofValue: val)
@@ -272,7 +273,7 @@ struct EpollReadinessBackend: ~Copyable {
       // The timer fired so it is not armed anymore.
       self.armedContinuousClockDeadline = nil
     default:
-      return ReadinessEvent(
+      return unsafe ReadinessEvent(
         registrationID: epollUserData.registrationID,
         fileDescriptor: fd,
         // `EPOLLRDHUP` is reported alongside readiness and the operation that
@@ -306,9 +307,9 @@ struct EpollReadinessBackend: ~Copyable {
       events |= Epoll.EPOLLOUT
     }
 
-    var event = Epoll.epoll_event()
-    event.events = events
-    event.data.u64 = UInt64(
+    var event = unsafe Epoll.epoll_event()
+    unsafe event.events = events
+    unsafe event.data.u64 = UInt64(
       UserData(
         registrationID: registration.registrationID,
         fileDescriptor: registration.fileDescriptor
@@ -321,7 +322,7 @@ struct EpollReadinessBackend: ~Copyable {
     // descriptor asks the kernel instead, which is always right and costs the
     // extra syscall only on the first operation of a file descriptor.
     do {
-      try Epoll.epoll_ctl(
+      try unsafe Epoll.epoll_ctl(
         epfd: self.epollFD,
         op: Epoll.EPOLL_CTL_MOD,
         fd: registration.fileDescriptor,
@@ -329,7 +330,7 @@ struct EpollReadinessBackend: ~Copyable {
       )
     } catch let error where error.errnoCode == ENOENT {
       do {
-        try Epoll.epoll_ctl(
+        try unsafe Epoll.epoll_ctl(
           epfd: self.epollFD,
           op: Epoll.EPOLL_CTL_ADD,
           fd: registration.fileDescriptor,
@@ -368,11 +369,11 @@ struct EpollReadinessBackend: ~Copyable {
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 extension EpollReadinessBackend: IOBackend {
   static func attempt(_ operation: IOOperation) -> Result<Int, IOError>? {
-    ReadinessOperations.attempt(operation)
+    unsafe ReadinessOperations.attempt(operation)
   }
 
   mutating func submit(_ operation: IOOperation, id: IOOperationID) {
-    guard let registration = self.operations.submit(operation, id: id) else {
+    guard let registration = unsafe self.operations.submit(operation, id: id) else {
       return
     }
     self.arm(registration)
@@ -399,15 +400,15 @@ extension EpollReadinessBackend: IOBackend {
 
     let timeout = try self.prepareWait(strategy: strategy)
     let epollFD = self.epollFD
-    self.events.removeAll()
-    try self.events.edit { events in
-      try Self.waitForEvents(epollFD: epollFD, timeout: timeout, into: &events)
+    unsafe self.events.removeAll()
+    try unsafe self.events.edit { events in
+      try unsafe Self.waitForEvents(epollFD: epollFD, timeout: timeout, into: &events)
     }
 
-    for index in self.events.indices {
+    for index in unsafe self.events.indices {
       // The event is copied out, since processing it mutates the backend.
-      let event = self.events[index]
-      guard let readiness = try self.process(event),
+      let event = unsafe self.events[index]
+      guard let readiness = try unsafe self.process(event),
         let registration = self.operations.handle(readiness)
       else {
         continue
@@ -425,12 +426,12 @@ extension EpollReadinessBackend: IOBackend {
   mutating func wait(strategy: IOWaitStrategy) throws {
     let timeout = try self.prepareWait(strategy: strategy)
     let epollFD = self.epollFD
-    try withTemporaryAllocation(of: Epoll.epoll_event.self, capacity: Self.maxEvents) { events in
-      try Self.waitForEvents(epollFD: epollFD, timeout: timeout, into: &events)
+    try unsafe withTemporaryAllocation(of: Epoll.epoll_event.self, capacity: Self.maxEvents) { events in
+      try unsafe Self.waitForEvents(epollFD: epollFD, timeout: timeout, into: &events)
 
       // Process the events.
-      for index in events.indices {
-        _ = try self.process(events[index])
+      for index in unsafe events.indices {
+        _ = try unsafe self.process(events[index])
       }
     }
   }
@@ -488,7 +489,7 @@ internal enum Epoll {
     event: UnsafeMutablePointer<epoll_event>
   ) throws(SyscallError) -> CInt {
     return try retryingSyscall(blocking: false) {
-      CPlatformExecutors.epoll_ctl(epfd, op, fd, event)
+      unsafe CPlatformExecutors.epoll_ctl(epfd, op, fd, event)
     }.result
   }
 
@@ -500,7 +501,7 @@ internal enum Epoll {
     timeout: CInt
   ) throws(SyscallError) -> CInt {
     return try retryingSyscall(blocking: false) {
-      CPlatformExecutors.epoll_wait(epfd, events, maxevents, timeout)
+      unsafe CPlatformExecutors.epoll_wait(epfd, events, maxevents, timeout)
     }.result
   }
 }

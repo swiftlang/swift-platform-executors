@@ -184,7 +184,7 @@ private func preconditionIsNotUnacceptableErrno(err: CInt, where function: Strin
   #else
   precondition(
     !isUnacceptableErrno(err),
-    "unacceptable errno \(err) \(String(cString: strerror(err)!)) in \(function))"
+    unsafe "unacceptable errno \(err) \(String(cString: strerror(err)!)) in \(function))"
   )
   #endif
 }
@@ -222,7 +222,7 @@ private func preconditionIsNotUnacceptableErrnoForbiddingEINVAL(err: CInt, where
   #else
   precondition(
     !isUnacceptableErrnoForbiddingEINVAL(err),
-    "unacceptable errno \(err) \(String(cString: strerror(err)!)) in \(function))"
+    unsafe "unacceptable errno \(err) \(String(cString: strerror(err)!)) in \(function))"
   )
   #endif
 }
@@ -246,7 +246,6 @@ internal func isUnacceptableErrnoForbiddingEINVAL(_ code: CInt) -> Bool {
   #endif
 }
 
-@inlinable
 func isUnacceptableErrnoOnClose(_ code: CInt) -> Bool {
   // We treat close() differently to all other FDs: we still want to catch EBADF here.
   switch code {
@@ -257,7 +256,6 @@ func isUnacceptableErrnoOnClose(_ code: CInt) -> Bool {
   }
 }
 
-@inlinable
 internal func preconditionIsNotUnacceptableErrnoOnClose(err: CInt, where function: String) {
   // strerror is documented to return "Unknown error: ..." for illegal value so it won't ever fail
   #if os(Windows)
@@ -265,7 +263,7 @@ internal func preconditionIsNotUnacceptableErrnoOnClose(err: CInt, where functio
   #else
   precondition(
     !isUnacceptableErrnoOnClose(err),
-    "unacceptable errno \(err) \(String(cString: strerror(err)!)) in \(function))"
+    unsafe "unacceptable errno \(err) \(String(cString: strerror(err)!)) in \(function))"
   )
   #endif
 }

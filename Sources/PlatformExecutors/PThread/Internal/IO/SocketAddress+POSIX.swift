@@ -49,10 +49,10 @@ extension SocketAddress {
       address.sin_port = v4.port.bigEndian
       withUnsafeMutableBytes(of: &address.sin_addr) { destination in
         for index in v4.address.bytes.indices {
-          destination[index] = v4.address.bytes[index]
+          unsafe destination[index] = v4.address.bytes[index]
         }
       }
-      return try Self.withUnsafeSockAddress(of: &address, body)
+      return try unsafe Self.withUnsafeSockAddress(of: &address, body)
 
     case .v6(let v6):
       var address = sockaddr_in6()
@@ -64,10 +64,10 @@ extension SocketAddress {
       address.sin6_scope_id = v6.scopeID
       withUnsafeMutableBytes(of: &address.sin6_addr) { destination in
         for index in v6.address.bytes.indices {
-          destination[index] = v6.address.bytes[index]
+          unsafe destination[index] = v6.address.bytes[index]
         }
       }
-      return try Self.withUnsafeSockAddress(of: &address, body)
+      return try unsafe Self.withUnsafeSockAddress(of: &address, body)
     }
   }
 
@@ -85,7 +85,7 @@ extension SocketAddress {
     // cast back. Only `body` can throw here, so the cast cannot fail.
     do {
       return try withUnsafeBytes(of: &address) { bytes in
-        try body(
+        try unsafe body(
           bytes.baseAddress!.assumingMemoryBound(to: sockaddr.self),
           socklen_t(bytes.count)
         )
@@ -103,9 +103,9 @@ extension SocketAddress {
   /// - Parameter storage: The storage to write the address into.
   /// - Returns: The length of the address that was written.
   func write(into storage: inout sockaddr_storage) -> socklen_t {
-    self.withUnsafeSockAddress { address, length in
+    unsafe self.withUnsafeSockAddress { address, length in
       withUnsafeMutableBytes(of: &storage) { destination in
-        destination.copyMemory(
+        unsafe destination.copyMemory(
           from: UnsafeRawBufferPointer(start: UnsafeRawPointer(address), count: Int(length))
         )
       }
@@ -122,9 +122,9 @@ extension SocketAddress {
     case AF_INET:
       // `load` copies the address out. The alignment it requires is satisfied
       // because `sockaddr_storage` is aligned for every address it can hold.
-      let address = withUnsafeBytes(of: storage) { $0.load(as: sockaddr_in.self) }
+      let address = withUnsafeBytes(of: storage) { unsafe $0.load(as: sockaddr_in.self) }
       let bytes = withUnsafeBytes(of: address.sin_addr) { source in
-        InlineArray<4, UInt8> { source[$0] }
+        InlineArray<4, UInt8> { unsafe source[$0] }
       }
       self = .v4(
         V4(
@@ -134,9 +134,9 @@ extension SocketAddress {
       )
 
     case AF_INET6:
-      let address = withUnsafeBytes(of: storage) { $0.load(as: sockaddr_in6.self) }
+      let address = withUnsafeBytes(of: storage) { unsafe $0.load(as: sockaddr_in6.self) }
       let bytes = withUnsafeBytes(of: address.sin6_addr) { source in
-        InlineArray<16, UInt8> { source[$0] }
+        InlineArray<16, UInt8> { unsafe source[$0] }
       }
       self = .v6(
         V6(

@@ -18,6 +18,7 @@ import SystemSockets
 
 /// An I/O mechanism that uses `io_uring`.
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
+@safe
 struct IOUringBackend: ~Copyable {
   /// A handle that other threads use to wake this backend up.
   struct WakeupHandle: Sendable {
@@ -63,7 +64,7 @@ struct IOUringBackend: ~Copyable {
     }
     self.ring = ring
     self.eventFD = eventFD
-    self.wakeupBuffer = .allocate(
+    unsafe self.wakeupBuffer = .allocate(
       byteCount: MemoryLayout<UInt64>.size,
       alignment: MemoryLayout<UInt64>.alignment
     )
@@ -72,7 +73,7 @@ struct IOUringBackend: ~Copyable {
 
   deinit {
     try! close(descriptor: self.eventFD)
-    self.wakeupBuffer.deallocate()
+    unsafe self.wakeupBuffer.deallocate()
   }
 
   /// Wakes up a backend from any thread.
@@ -84,7 +85,7 @@ struct IOUringBackend: ~Copyable {
 
   /// Prepares a read of ``eventFD``, so that a write to it completes a request and ends the wait.
   private mutating func armWakeup() {
-    self.prepare(
+    unsafe self.prepare(
       .read(
         FileDescriptor(rawValue: self.eventFD),
         into: self.wakeupBuffer,
@@ -115,9 +116,9 @@ struct IOUringBackend: ~Copyable {
 
   /// Returns the request that performs the operation.
   private static func request(for operation: IOOperation, context: UInt64) -> IORing.Request {
-    switch operation {
+    switch unsafe operation {
     case .connect(let socket, let address, let addressLength):
-      return .connect(
+      return unsafe .connect(
         SocketDescriptor(rawValue: socket),
         to: SystemSockets.SocketAddress(address: address, length: addressLength),
         context: context
@@ -126,11 +127,11 @@ struct IOUringBackend: ~Copyable {
       // The accepted socket is non-blocking, like the sockets of every backend.
       return .accept(SocketDescriptor(rawValue: socket), flags: [.closeOnExec, .nonBlocking], context: context)
     case .read(let socket, let buffer):
-      return .receive(SocketDescriptor(rawValue: socket), into: buffer, context: context)
+      return unsafe .receive(SocketDescriptor(rawValue: socket), into: buffer, context: context)
     case .write(let socket, let buffer):
       // A send request sets `MSG_NOSIGNAL`, so it fails with `EPIPE` rather
       // than raising `SIGPIPE`.
-      return .send(buffer, to: SocketDescriptor(rawValue: socket), context: context)
+      return unsafe .send(buffer, to: SocketDescriptor(rawValue: socket), context: context)
     case .shutdown(let socket, let direction):
       let how: SocketDescriptor.ShutdownKind =
         switch direction {
@@ -143,7 +144,7 @@ struct IOUringBackend: ~Copyable {
       return .close(FileDescriptor(rawValue: socket), context: context)
     case .openFile(let path, let flags, let permissions):
       // The ring copies the path, so it only has to stay alive until the request is prepared.
-      return .open(
+      return unsafe .open(
         FilePath(platformString: path),
         in: FileDescriptor(rawValue: AT_FDCWD),
         mode: FileDescriptor.AccessMode(rawValue: flags & O_ACCMODE),
@@ -152,9 +153,9 @@ struct IOUringBackend: ~Copyable {
         context: context
       )
     case .readFile(let file, let buffer, let offset):
-      return .read(FileDescriptor(rawValue: file), into: buffer, at: UInt64(offset), context: context)
+      return unsafe .read(FileDescriptor(rawValue: file), into: buffer, at: UInt64(offset), context: context)
     case .writeFile(let file, let buffer, let offset):
-      return .write(
+      return unsafe .write(
         UnsafeMutableRawBufferPointer(mutating: buffer),
         into: FileDescriptor(rawValue: file),
         at: UInt64(offset),
@@ -206,12 +207,12 @@ extension IOUringBackend: IOBackend {
   }
 
   mutating func submit(_ operation: IOOperation, id: IOOperationID) {
-    if case .close(let socket) = operation {
+    if case .close(let socket) = unsafe operation {
       // This cancels all outstanding requests on the file descriptor.
       // TODO: Once we make the associated types become ~Copyable we don't need this
       self.prepare(.cancel(.all, matching: FileDescriptor(rawValue: socket)))
     }
-    self.prepare(Self.request(for: operation, context: Self.context(of: id)))
+    unsafe self.prepare(Self.request(for: operation, context: Self.context(of: id)))
   }
 
   mutating func cancel(_ id: IOOperationID) {

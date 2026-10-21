@@ -28,6 +28,6 @@ public final class PlatformSerialExecutor: SerialExecutor {
   internal nonisolated(unsafe) var executor: Executor!
 
   public func enqueue(_ job: consuming ExecutorJob) {
-    self.executor.enqueue(job)
+    unsafe self.executor.enqueue(job)
   }
 }

@@ -17,6 +17,7 @@ import Dispatch
 /// This wrapper primarly exists since we need to call the `runSynchronously`
 /// with the ``PlatformTaskExecutor`` for the tracking to work correctly.
 @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+@safe
 package final class DispatchTaskExecutor: TaskExecutor, @unchecked Sendable {
   private let queue: DispatchQueue
   private let taskExecutor: UnownedTaskExecutor
@@ -24,13 +25,13 @@ package final class DispatchTaskExecutor: TaskExecutor, @unchecked Sendable {
   package init(name: String, taskExecutor: UnownedTaskExecutor) {
     // There is no way to set the pool width of a dispatch queue
     self.queue = DispatchQueue(label: name, attributes: .concurrent)
-    self.taskExecutor = taskExecutor
+    unsafe self.taskExecutor = unsafe taskExecutor
   }
 
   package func enqueue(_ job: consuming ExecutorJob) {
     let job = UnownedJob(job)
     self.queue.async {
-      job.runSynchronously(on: self.taskExecutor)
+      unsafe job.runSynchronously(on: self.taskExecutor)
     }
   }
 }

@@ -35,7 +35,7 @@ enum EventFileDescriptor {
   @inline(never)
   static func eventfd_read(fd: CInt, value: UnsafeMutablePointer<UInt64>) throws -> CInt {
     return try retryingSyscall(blocking: false) {
-      CPlatformExecutors.eventfd_read(fd, value)
+      unsafe CPlatformExecutors.eventfd_read(fd, value)
     }.result
   }
 

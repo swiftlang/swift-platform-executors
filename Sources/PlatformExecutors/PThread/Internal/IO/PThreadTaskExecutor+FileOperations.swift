@@ -38,8 +38,8 @@ extension PThreadTaskExecutor: FileOperationScheduler {
       return try await self.next().openFile(path: path, configuration: configuration)
     }
 
-    return try await FileSyscall.withCPath(path) { path async throws(IOError) -> FileHandle in
-      let fileDescriptor = try await self.performBlocking(
+    return try await unsafe FileSyscall.withCPath(path) { path async throws(IOError) -> FileHandle in
+      let fileDescriptor = try await unsafe self.performBlocking(
         .openFile(
           path: path,
           flags: FileSyscall.flags(for: configuration),
@@ -56,17 +56,17 @@ extension PThreadTaskExecutor: FileOperationScheduler {
     at offset: Int64
   ) async throws(IOError) -> Int {
     if self.performsFileOperations {
-      return try await self.executors[file.executorIndex].readFile(file, into: &buffer, at: offset)
+      return try await unsafe self.executors[file.executorIndex].readFile(file, into: &buffer, at: offset)
     }
 
     // The bytes are read into the free capacity of the buffer.
-    let freeCapacity = buffer.withUnsafeMutableBytes { bytes, initializedCount in
-      UnsafeMutableRawBufferPointer(rebasing: bytes[initializedCount...])
+    let freeCapacity = unsafe buffer.withUnsafeMutableBytes { bytes, initializedCount in
+      unsafe UnsafeMutableRawBufferPointer(rebasing: bytes[initializedCount...])
     }
-    let count = try await self.performBlocking(
+    let count = try await unsafe self.performBlocking(
       .readFile(file: file.fileDescriptor, buffer: freeCapacity, offset: offset)
     )
-    buffer.withUnsafeMutableBytes { _, initializedCount in
+    unsafe buffer.withUnsafeMutableBytes { _, initializedCount in
       initializedCount += count
     }
     return count
@@ -78,20 +78,20 @@ extension PThreadTaskExecutor: FileOperationScheduler {
     at offset: Int64
   ) async throws(IOError) -> Int {
     if self.performsFileOperations {
-      return try await self.executors[file.executorIndex].writeFile(file, from: buffer, at: offset)
+      return try await unsafe self.executors[file.executorIndex].writeFile(file, from: buffer, at: offset)
     }
 
-    let bytes = buffer.withUnsafeBytes { $0 }
-    return try await self.performBlocking(
+    let bytes = buffer.withUnsafeBytes { unsafe $0 }
+    return try await unsafe self.performBlocking(
       .writeFile(file: file.fileDescriptor, buffer: bytes, offset: offset)
     )
   }
 
   public func close(file: consuming FileHandle) async throws(IOError) {
     if self.performsFileOperations {
-      return try await self.executors[file.executorIndex].closeFile(file)
+      return try await unsafe self.executors[file.executorIndex].closeFile(file)
     }
-    _ = try await self.performBlocking(.close(fileDescriptor: file.fileDescriptor))
+    _ = try await unsafe self.performBlocking(.close(fileDescriptor: file.fileDescriptor))
   }
 
   /// Performs the operation with a blocking syscall on one of the threads for blocking work.
@@ -102,7 +102,7 @@ extension PThreadTaskExecutor: FileOperationScheduler {
     let queue = self.blockingQueue()
     return try await withContinuation(of: Int.self, throwing: IOError.self) {
       (continuation, awaiter) async throws(IOError) -> Int in
-      let id = queue.submit(
+      let id = unsafe queue.submit(
         operation: operation,
         priority: Task.currentPriority,
         continuation: continuation

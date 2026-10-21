@@ -35,10 +35,10 @@ extension UniqueArray where Element: ~Copyable {
     addingCount newItemCount: Int,
     initializingWith initializer: (inout OutputSpan<Element>) async throws(E) -> R
   ) async throws(E) -> R {
-    let freeCapacity = self.reserveFreeCapacity(newItemCount)
-    var span = OutputSpan(buffer: freeCapacity, initializedCount: 0)
+    let freeCapacity = unsafe self.reserveFreeCapacity(newItemCount)
+    var span = unsafe OutputSpan(buffer: freeCapacity, initializedCount: 0)
     defer {
-      self.addInitializedCount(span.finalize(for: freeCapacity))
+      unsafe self.addInitializedCount(span.finalize(for: freeCapacity))
       span = OutputSpan()
     }
     return try await initializer(&span)
@@ -50,8 +50,8 @@ extension UniqueArray where Element: ~Copyable {
   private mutating func reserveFreeCapacity(_ newItemCount: Int) -> UnsafeMutableBufferPointer<Element> {
     precondition(newItemCount >= 0, "Cannot add a negative number of items")
     self.reserveCapacity(self.count + newItemCount)
-    return self.edit { span in
-      span.withUnsafeMutableBufferPointer { buffer, initializedCount in
+    return unsafe self.edit { span in
+      unsafe span.withUnsafeMutableBufferPointer { buffer, initializedCount in
         buffer.extracting(initializedCount..<initializedCount + newItemCount)
       }
     }
@@ -60,7 +60,7 @@ extension UniqueArray where Element: ~Copyable {
   /// Adds elements that were initialized in the memory after the last element to the array.
   private mutating func addInitializedCount(_ initializedCount: Int) {
     self.edit { span in
-      span.withUnsafeMutableBufferPointer { _, count in
+      unsafe span.withUnsafeMutableBufferPointer { _, count in
         count += initializedCount
       }
     }
@@ -84,12 +84,12 @@ extension UniqueArray<UInt8> {
     initializingWith initializer: (inout OutputRawSpan) async throws(E) -> R
   ) async throws(E) -> R {
     try await self.append(addingCount: newByteCount) { (span: inout OutputSpan<UInt8>) async throws(E) -> R in
-      let buffer = span.withUnsafeMutableBufferPointer { buffer, _ in UnsafeMutableRawBufferPointer(buffer) }
-      var bytes = OutputRawSpan(buffer: buffer, initializedCount: 0)
+      let buffer = unsafe span.withUnsafeMutableBufferPointer { buffer, _ in UnsafeMutableRawBufferPointer(buffer) }
+      var bytes = unsafe OutputRawSpan(buffer: buffer, initializedCount: 0)
       defer {
-        let byteCount = bytes.finalize(for: buffer)
+        let byteCount = unsafe bytes.finalize(for: buffer)
         bytes = OutputRawSpan()
-        span.withUnsafeMutableBufferPointer { _, initializedCount in
+        unsafe span.withUnsafeMutableBufferPointer { _, initializedCount in
           initializedCount = byteCount
         }
       }

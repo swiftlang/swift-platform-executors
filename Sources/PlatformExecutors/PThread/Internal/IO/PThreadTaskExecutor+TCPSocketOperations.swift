@@ -32,41 +32,41 @@ extension PThreadTaskExecutor: TCPSocketOperationScheduler {
   }
 
   public func accept(listener: borrowing TCPListener) async throws(IOError) -> TCPConnection {
-    try await self.executors[listener.executorIndex].accept(listener: listener)
+    try await unsafe self.executors[listener.executorIndex].accept(listener: listener)
   }
 
   public func read(
     connection: borrowing TCPConnection,
     into buffer: inout OutputRawSpan
   ) async throws(IOError) -> Int {
-    try await self.executors[connection.executorIndex].read(connection: connection, into: &buffer)
+    try await unsafe self.executors[connection.executorIndex].read(connection: connection, into: &buffer)
   }
 
   public func write(connection: borrowing TCPConnection, from buffer: RawSpan) async throws(IOError) -> Int {
-    try await self.executors[connection.executorIndex].write(connection: connection, from: buffer)
+    try await unsafe self.executors[connection.executorIndex].write(connection: connection, from: buffer)
   }
 
   public func shutdown(
     connection: borrowing TCPConnection,
     direction: SocketShutdownDirection
   ) async throws(IOError) {
-    try await self.executors[connection.executorIndex].shutdown(connection: connection, direction: direction)
+    try await unsafe self.executors[connection.executorIndex].shutdown(connection: connection, direction: direction)
   }
 
   public func close(connection: consuming TCPConnection) async throws(IOError) {
-    try await self.executors[connection.executorIndex].close(connection: connection)
+    try await unsafe self.executors[connection.executorIndex].close(connection: connection)
   }
 
   public func close(listener: consuming TCPListener) async throws(IOError) {
-    try await self.executors[listener.executorIndex].close(listener: listener)
+    try await unsafe self.executors[listener.executorIndex].close(listener: listener)
   }
 
   public func localAddress(of connection: borrowing TCPConnection) throws(IOError) -> SocketAddress {
-    try self.executors[connection.executorIndex].localAddress(of: connection)
+    try unsafe self.executors[connection.executorIndex].localAddress(of: connection)
   }
 
   public func localAddress(of listener: borrowing TCPListener) throws(IOError) -> SocketAddress {
-    try self.executors[listener.executorIndex].localAddress(of: listener)
+    try unsafe self.executors[listener.executorIndex].localAddress(of: listener)
   }
 }
 

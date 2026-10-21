@@ -98,7 +98,7 @@ final class OperationSchedulerPreference: Sendable {
       preference = current.outer
     }
 
-    let taskExecutor = withUnsafeCurrentTask { $0?.unownedTaskExecutor }?.asTaskExecutor()
+    let taskExecutor = unsafe withUnsafeCurrentTask { unsafe $0?.unownedTaskExecutor }?.asTaskExecutor()
     if let scheduler = taskExecutor as? Scheduler {
       return scheduler
     }

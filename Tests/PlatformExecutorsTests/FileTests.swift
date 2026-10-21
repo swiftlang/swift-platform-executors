@@ -33,7 +33,7 @@ struct FileTests {
   ) async throws {
     let path = "/tmp/platform-executors-file-test-\(UInt64.random(in: .min ... .max))"
     // TODO: Offer an unlink operation and use it here
-    defer { unlink(path) }
+    defer { unsafe unlink(path) }
     try await PThreadTaskExecutor.withExecutor(name: "FileTest", poolSize: poolSize, ioBackend: ioBackend) {
       executor in
       try await withTaskExecutorPreference(executor) {
@@ -89,7 +89,7 @@ struct FileTests {
   @available(anyAppleOS 27.0, *)
   func truncateDropsTheExistingContent(ioBackend: PThreadIOBackend) async throws {
     try await Self.withTemporaryFile(ioBackend: ioBackend) { path in
-      var writable = try await File.Writable.open(path: path)
+      let writable = try await File.Writable.open(path: path)
       try await writable.write(from: Array("old content".utf8).span.bytes, at: 0)
       try await writable.close()
 
@@ -179,7 +179,7 @@ struct FileTests {
 
       // TODO: Offer a stat operation and use it here
       var status = stat()
-      #expect(stat(path, &status) == 0)
+      unsafe #expect(stat(path, &status) == 0)
       // The umask can only remove bits.
       #expect(status.st_mode & 0o777 & ~0o640 == 0)
       #expect(status.st_mode & 0o600 == 0o600)
@@ -194,9 +194,9 @@ struct FileTests {
       try await file.close()
       let link = path + "-link"
       // TODO: Offer a symlink operation and use it here
-      #expect(symlink(path, link) == 0)
+      unsafe #expect(symlink(path, link) == 0)
       // TODO: Offer an unlink operation and use it here
-      defer { unlink(link) }
+      defer { unsafe unlink(link) }
 
       let linked = try await File.Readable.open(path: link)
       try await linked.close()
@@ -214,7 +214,7 @@ struct FileTests {
     try await Self.withTemporaryFile(ioBackend: ioBackend) { path in
       try await withThrowingTaskGroup { group in
         group.addTask {
-          withUnsafeCurrentTask { $0?.cancel() }
+          unsafe withUnsafeCurrentTask { unsafe $0?.cancel() }
           let error = await #expect(throws: IOError.self) {
             let file = try await File.Writable.open(path: path)
             try await file.close()
@@ -234,12 +234,12 @@ struct FileTests {
   func cancellingAQueuedOperationResumesWithCancelled(ioBackend: PThreadIOBackend) async throws {
     let fifo = "/tmp/platform-executors-file-test-fifo-\(UInt64.random(in: .min ... .max))"
     // TODO: Offer a mkfifo operation and use it here
-    #expect(mkfifo(fifo, 0o600) == 0)
+    unsafe #expect(mkfifo(fifo, 0o600) == 0)
     // TODO: Offer an unlink operation and use it here
-    defer { unlink(fifo) }
+    defer { unsafe unlink(fifo) }
     let regular = "/tmp/platform-executors-file-test-\(UInt64.random(in: .min ... .max))"
     // TODO: Offer an unlink operation and use it here
-    defer { unlink(regular) }
+    defer { unsafe unlink(regular) }
 
     try await PThreadTaskExecutor.withExecutor(
       name: "FileTest",
@@ -286,7 +286,7 @@ struct FileTests {
 
   /// Opens the write end of a FIFO, which lets a reader that waits in an \`open\` continue.
   private static func releaseFIFO(_ path: String) {
-    let descriptor = open(path, O_WRONLY | O_NONBLOCK)
+    let descriptor = unsafe open(path, O_WRONLY | O_NONBLOCK)
     if descriptor >= 0 {
       close(descriptor)
     }
@@ -300,7 +300,7 @@ struct FileTests {
         for index in 0..<32 {
           group.addTask {
             let path = "\(path)-\(index)"
-            defer { unlink(path) }
+            defer { unsafe unlink(path) }
             let payload = Array(repeating: UInt8(index), count: 10_000 + index)
             let file = try await File.open(path: path)
             try await file.write(from: payload.span.bytes, at: 0)

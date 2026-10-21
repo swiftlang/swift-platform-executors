@@ -55,12 +55,12 @@ func withRefusingAddress(
   var length = socklen_t(MemoryLayout<sockaddr_in>.size)
 
   let failedFunction = withUnsafeMutablePointer(to: &address) { pointer -> String? in
-    pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { address -> String? in
-      if bind(fileDescriptor, address, length) != 0 {
+    unsafe pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { address -> String? in
+      if unsafe bind(fileDescriptor, address, length) != 0 {
         return "bind"
       }
       // The platform picks the port while binding, so we read it back here.
-      if getsockname(fileDescriptor, address, &length) != 0 {
+      if unsafe getsockname(fileDescriptor, address, &length) != 0 {
         return "getsockname"
       }
       return nil

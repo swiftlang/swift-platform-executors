@@ -18,9 +18,10 @@ internal import Synchronization
 
 /// A pool of threads that run blocking syscalls for tasks that wait for them.
 @available(anyAppleOS 27.0, *)
+@safe
 final class BlockingWorkQueue: @unchecked Sendable {
   /// An operation that waits to be run.
-  private struct Entry: ~Copyable {
+  @unsafe private struct Entry: ~Copyable {
     /// The operation.
     var operation: IOOperation
 
@@ -47,7 +48,7 @@ final class BlockingWorkQueue: @unchecked Sendable {
   }
 
   /// Type needed to carry out an entry and a bool from a closure since tuples don't support `~Copyable` types.
-  private struct Taken: ~Copyable {
+  @unsafe private struct Taken: ~Copyable {
     /// The entry to run, or `nil` if the queue has none.
     var entry: Entry?
 
@@ -55,7 +56,7 @@ final class BlockingWorkQueue: @unchecked Sendable {
     var isStopping: Bool
   }
 
-  private struct State: ~Copyable {
+  @unsafe private struct State: ~Copyable {
     /// The keys of the operations in the order they run in. This includes the keys of cancelled operations
     /// and the stale ones of escalated operations, which the workers skip.
     // TODO: We should check if we can avoid stale keys in the future without
@@ -65,7 +66,7 @@ final class BlockingWorkQueue: @unchecked Sendable {
     /// The operations that wait to be run, by identity.
     ///
     /// This is a `RigidDictionary`, since a `UniqueDictionary` shrinks when the queue drains.
-    var pending = RigidDictionary<UInt64, Entry>(capacity: IOOperation.reservedCapacity)
+    var pending = unsafe RigidDictionary<UInt64, Entry>(capacity: IOOperation.reservedCapacity)
 
     /// Whether the executor is stopping.
     var isStopping = false
@@ -75,7 +76,7 @@ final class BlockingWorkQueue: @unchecked Sendable {
   }
 
   /// The queue's thread.
-  private let state = ConditionVariable(State())
+  private let state = unsafe ConditionVariable(State())
 
   /// The identity of the next submitted operation.
   private let nextID = Atomic<UInt64>(0)
@@ -91,11 +92,11 @@ final class BlockingWorkQueue: @unchecked Sendable {
   init(name: String, threadCount: Int) {
     precondition(threadCount > 0, "The pool size must be positive")
     var threads = UniqueArray<Thread>(minimumCapacity: threadCount)
-    let state = self.state
+    let state = unsafe self.state
     for index in 0..<threadCount {
       threads.append(
         Thread.spawnAndRun(name: "\(name)-\(index)") {
-          Self.work(state)
+          unsafe Self.work(state)
         }
       )
     }
@@ -104,7 +105,7 @@ final class BlockingWorkQueue: @unchecked Sendable {
 
   /// Stops the threads once they ran everything that is queued, and joins them.
   func shutdown() {
-    self.state.signalAll { $0.isStopping = true }
+    unsafe self.state.signalAll { unsafe $0.isStopping = true }
     while let thread = self.threads.popLast() {
       thread.join()
     }
@@ -123,20 +124,20 @@ final class BlockingWorkQueue: @unchecked Sendable {
     continuation: consuming Continuation<Int, IOError>
   ) -> UInt64 {
     let id = self.nextID.wrappingAdd(1, ordering: .relaxed).newValue
-    var entry = Optional(Entry(operation: operation, priority: priority, continuation: continuation))
-    self.state.withLockAndSignalIfNeeded { state in
-      state.order.push(Key(priority: priority, id: id))
+    var entry = unsafe Optional(Entry(operation: operation, priority: priority, continuation: continuation))
+    unsafe self.state.withLockAndSignalIfNeeded { state in
+      unsafe state.order.push(Key(priority: priority, id: id))
       // There is no more room in the dictionary so we have to grow it.
-      if state.pending.isFull {
-        state.pending.reserveCapacity(2 * state.pending.capacity)
+      if unsafe state.pending.isFull {
+        unsafe state.pending.reserveCapacity(2 * state.pending.capacity)
       }
       // The force-unwrap is safe we just need call-once closures.
-      let rejected = state.pending.insertValue(entry.take()!, forKey: id)
-      guard case .none = consume rejected else {
+      let rejected = unsafe state.pending.insertValue(entry.take()!, forKey: id)
+      guard case .none = unsafe consume rejected else {
         fatalError("An operation was submitted with the identity of one that is still queued")
       }
       // A busy worker looks at the queue again once it is done, so nobody has to be woken up for it.
-      return (state.idleWorkers > 0, ())
+      return unsafe (state.idleWorkers > 0, ())
     }
     return id
   }
@@ -145,11 +146,11 @@ final class BlockingWorkQueue: @unchecked Sendable {
   ///
   /// - Parameter id: The identity of the operation.
   func cancel(_ id: UInt64) {
-    let entry = self.state.withLock { state in
-      state.pending.removeValue(forKey: id)
+    let entry = unsafe self.state.withLock { state in
+      unsafe state.pending.removeValue(forKey: id)
     }
-    if let entry = entry {
-      entry.continuation.resume(throwing: IOError(code: .cancelled))
+    if let entry = unsafe entry {
+      unsafe entry.continuation.resume(throwing: IOError(code: .cancelled))
     }
   }
 
@@ -161,17 +162,17 @@ final class BlockingWorkQueue: @unchecked Sendable {
   // TODO: We do not escalate the underlying thread priorities for in-progress operations.
   func escalate(_ id: UInt64, to priority: TaskPriority) {
     // This does not give any worker something to do either, since the operation was queued already.
-    self.state.withLock { state in
-      guard var entry = state.pending.removeValue(forKey: id) else {
+    unsafe self.state.withLock { state in
+      guard var entry = unsafe state.pending.removeValue(forKey: id) else {
         return
       }
-      if priority > entry.priority {
-        entry.priority = priority
+      if unsafe priority > entry.priority {
+        unsafe entry.priority = priority
         // The key of the lower priority is stale from now on.
-        state.order.push(Key(priority: priority, id: id))
+        unsafe state.order.push(Key(priority: priority, id: id))
       }
-      let rejected = state.pending.insertValue(entry, forKey: id)
-      guard case .none = consume rejected else {
+      let rejected = unsafe state.pending.insertValue(entry, forKey: id)
+      guard case .none = unsafe consume rejected else {
         fatalError("An operation was queued twice")
       }
     }
@@ -181,35 +182,35 @@ final class BlockingWorkQueue: @unchecked Sendable {
     while true {
       // Whether this worker is counted as idle.
       var isCountedIdle = false
-      var taken = state.wait { state in
+      var taken = unsafe state.wait { state in
         if isCountedIdle {
-          state.idleWorkers -= 1
+          unsafe state.idleWorkers -= 1
           isCountedIdle = false
         }
-        if !state.order.isEmpty || state.isStopping {
+        if unsafe !state.order.isEmpty || state.isStopping {
           return true
         }
-        state.idleWorkers += 1
+        unsafe state.idleWorkers += 1
         isCountedIdle = true
         return false
       } block: { state -> Taken in
-        while let key = state.order.pop() {
+        while let key = unsafe state.order.pop() {
           // The key of a cancelled operation stays in the queue until it gets here.
-          if let entry = state.pending.removeValue(forKey: key.id) {
-            return Taken(entry: entry, isStopping: false)
+          if let entry = unsafe state.pending.removeValue(forKey: key.id) {
+            return unsafe Taken(entry: entry, isStopping: false)
           }
         }
-        return Taken(entry: nil, isStopping: state.isStopping)
+        return unsafe Taken(entry: nil, isStopping: state.isStopping)
       }
 
-      guard let entry = taken.entry.take() else {
-        if taken.isStopping {
+      guard let entry = unsafe taken.entry.take() else {
+        if unsafe taken.isStopping {
           return
         }
         continue
       }
-      let result = FileSyscall.perform(entry.operation)
-      entry.continuation.resume(with: result)
+      let result = unsafe FileSyscall.perform(entry.operation)
+      unsafe entry.continuation.resume(with: result)
     }
   }
 }

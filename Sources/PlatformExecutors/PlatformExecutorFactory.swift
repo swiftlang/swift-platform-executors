@@ -76,7 +76,7 @@
     body: (PlatformTaskExecutor) async throws(Failure) -> Return
   ) async throws(Failure) -> Return {
     let platformExecutor = PlatformTaskExecutor()
-    platformExecutor.executor = DispatchTaskExecutor(
+    unsafe platformExecutor.executor = unsafe DispatchTaskExecutor(
       name: name,
       taskExecutor: platformExecutor.asUnownedTaskExecutor()
     )
@@ -93,7 +93,7 @@
     body: (PlatformSerialExecutor) async throws(Failure) -> Return
   ) async throws(Failure) -> Return {
     let platformExecutor = PlatformSerialExecutor()
-    platformExecutor.executor = DispatchSerialExecutor(
+    unsafe platformExecutor.executor = unsafe DispatchSerialExecutor(
       name: name,
       serialExecutor: platformExecutor.asUnownedSerialExecutor()
     )
@@ -127,7 +127,7 @@ import Foundation
     let blockingPoolSize = environment["SWIFT_PLATFORM_DEFAULT_EXECUTOR_BLOCKING_POOL_SIZE"]
       .flatMap { Int($0) }
       .flatMap { $0 > 0 ? $0 : nil }
-    return PThreadTaskExecutor(
+    return unsafe PThreadTaskExecutor(
       name: "global",
       poolSize: coreCount,
       taskExecutor: nil,
@@ -150,12 +150,12 @@ import Foundation
     do {
       do {
         let platformExecutor = PlatformTaskExecutor()
-        return try await PThreadTaskExecutor._withExecutor(
+        return try await unsafe PThreadTaskExecutor._withExecutor(
           name: name,
           poolSize: poolSize,
           taskExecutor: platformExecutor.asUnownedTaskExecutor()
         ) { executor in
-          platformExecutor.executor = executor
+          unsafe platformExecutor.executor = executor
           return try await body(platformExecutor)
         }
       } catch {
@@ -176,11 +176,11 @@ import Foundation
   ) async throws(Failure) -> Return {
     do {
       let platformExecutor = PlatformSerialExecutor()
-      return try await PThreadSerialExecutor._withExecutor(
+      return try await unsafe PThreadSerialExecutor._withExecutor(
         name: name,
         serialExecutor: platformExecutor.asUnownedSerialExecutor()
       ) { executor in
-        platformExecutor.executor = executor
+        unsafe platformExecutor.executor = executor
         return try await body(platformExecutor)
       }
     } catch {

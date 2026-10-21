@@ -16,19 +16,22 @@ import Dispatch
 
 // Thread-safe initialization of the dispatch function pointer
 private let dispatchAsyncSwiftJobFunc: (@convention(c) (DispatchQueue, UnsafeMutableRawPointer, UInt32) -> Void)? = {
-  guard let symbol = dlsym(CPlatformExecutors_RTLD_NEXT, "dispatch_async_swift_job") else {
+  guard let symbol = unsafe dlsym(CPlatformExecutors_RTLD_NEXT, "dispatch_async_swift_job") else {
     return nil
   }
-  return unsafeBitCast(symbol, to: (@convention(c) (DispatchQueue, UnsafeMutableRawPointer, UInt32) -> Void).self)
+  return unsafe unsafeBitCast(
+    symbol,
+    to: (@convention(c) (DispatchQueue, UnsafeMutableRawPointer, UInt32) -> Void).self
+  )
 }()
 
 @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
 private let _enqueueJobOnTaskExecutor: @Sendable (DispatchQueue, UnownedJob, UnownedTaskExecutor) -> Void = {
-  guard let dispatchAsyncSwiftJobFunc else {
+  guard let dispatchAsyncSwiftJobFunc = unsafe dispatchAsyncSwiftJobFunc else {
     // We can't find the `dispatch_async_swift_job` method so let's fallback
     return { queue, job, taskExecutor in
       queue.async {
-        job.runSynchronously(on: taskExecutor)
+        unsafe job.runSynchronously(on: taskExecutor)
       }
     }
   }
@@ -36,8 +39,8 @@ private let _enqueueJobOnTaskExecutor: @Sendable (DispatchQueue, UnownedJob, Uno
     // Convert UnownedJob to a raw pointer for C interface
     // Dispatch is storing this pointer after the call to enqueue as well so we
     // cannot use a scoped with-style method here
-    let jobPointer = unsafeBitCast(job, to: UnsafeMutableRawPointer.self)
-    dispatchAsyncSwiftJobFunc(
+    let jobPointer = unsafe unsafeBitCast(job, to: UnsafeMutableRawPointer.self)
+    unsafe dispatchAsyncSwiftJobFunc(
       queue,
       jobPointer,
       qosClassForPriority(job.priority).rawValue.rawValue
@@ -47,11 +50,11 @@ private let _enqueueJobOnTaskExecutor: @Sendable (DispatchQueue, UnownedJob, Uno
 
 @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
 private let _enqueueJobOnSerialExecutor: @Sendable (DispatchQueue, UnownedJob, UnownedSerialExecutor) -> Void = {
-  guard let dispatchAsyncSwiftJobFunc else {
+  guard let dispatchAsyncSwiftJobFunc = unsafe dispatchAsyncSwiftJobFunc else {
     // We can't find the `dispatch_async_swift_job` method so let's fallback
     return { queue, job, serialExecutor in
       queue.async {
-        job.runSynchronously(on: serialExecutor)
+        unsafe job.runSynchronously(on: serialExecutor)
       }
     }
   }
@@ -59,8 +62,8 @@ private let _enqueueJobOnSerialExecutor: @Sendable (DispatchQueue, UnownedJob, U
     // Convert UnownedJob to a raw pointer for C interface
     // Dispatch is storing this pointer after the call to enqueue as well so we
     // cannot use a scoped with-style method here
-    let jobPointer = unsafeBitCast(job, to: UnsafeMutableRawPointer.self)
-    dispatchAsyncSwiftJobFunc(
+    let jobPointer = unsafe unsafeBitCast(job, to: UnsafeMutableRawPointer.self)
+    unsafe dispatchAsyncSwiftJobFunc(
       queue,
       jobPointer,
       qosClassForPriority(job.priority).rawValue.rawValue
@@ -121,7 +124,7 @@ internal func _dispatchEnqueueMain(
   _ job: UnownedJob,
   serialExecutor: UnownedSerialExecutor
 ) {
-  _enqueueJobOnSerialExecutor(DispatchQueue.main, job, serialExecutor)
+  unsafe _enqueueJobOnSerialExecutor(DispatchQueue.main, job, serialExecutor)
 }
 
 @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
@@ -131,6 +134,6 @@ internal func _dispatchAssertMainQueue() {
 
 @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
 internal func _dispatchEnqueueGlobal(_ job: UnownedJob, taskExecutor: UnownedTaskExecutor) {
-  _enqueueJobOnTaskExecutor(getGlobalQueue(for: job.priority), job, taskExecutor)
+  unsafe _enqueueJobOnTaskExecutor(getGlobalQueue(for: job.priority), job, taskExecutor)
 }
 #endif

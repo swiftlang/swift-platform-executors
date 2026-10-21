@@ -24,6 +24,7 @@ import Darwin
 /// An I/O operation, described independently of any mechanism.
 ///
 /// WASI has no I/O support yet.
+@unsafe
 enum IOOperation {}
 #else
 /// An I/O operation, described independently of any mechanism.
@@ -31,6 +32,7 @@ enum IOOperation {}
 /// - Important: Every pointer in here has to stay valid until the operation completes or is cancelled. A
 /// readiness based mechanism reads the memory when the file descriptor becomes ready and a completion based one lets
 /// the kernel read and write it for the whole time the operation is in flight.
+@unsafe
 enum IOOperation {
   /// Connects a socket to the address in the given storage.
   case connect(socket: CInt, address: UnsafePointer<sockaddr>, addressLength: socklen_t)
@@ -62,7 +64,7 @@ enum IOOperation {
 
   /// The file descriptor that this operation is performed on.
   var fileDescriptor: CInt {
-    switch self {
+    switch unsafe self {
     case .openFile:
       fatalError("The operation creates its file descriptor.")
     case .readFile(let fileDescriptor, _, _),

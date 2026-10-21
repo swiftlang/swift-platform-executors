@@ -79,17 +79,17 @@ struct TCPEchoExample {
     // The buffer has to stay alive while a read is in flight so we heap alloc here.
     let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: 1024, alignment: 1)
     defer {
-      buffer.deallocate()
+      unsafe buffer.deallocate()
     }
 
     while true {
-      var output = OutputRawSpan(buffer: buffer, initializedCount: 0)
+      var output = unsafe OutputRawSpan(buffer: buffer, initializedCount: 0)
       let count = try await readHalf.read(into: &output)
-      _ = output.finalize(for: buffer)
+      _ = unsafe output.finalize(for: buffer)
       if count == 0 {
         return
       }
-      let echo = String(decoding: UnsafeRawBufferPointer(rebasing: buffer[..<count]), as: UTF8.self)
+      let echo = unsafe String(decoding: UnsafeRawBufferPointer(rebasing: buffer[..<count]), as: UTF8.self)
       print("Client received '\(echo)'")
     }
   }
@@ -99,17 +99,17 @@ struct TCPEchoExample {
     // The buffer has to stay alive while a read is in flight so we heap alloc here.
     let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: 1024, alignment: 1)
     defer {
-      buffer.deallocate()
+      unsafe buffer.deallocate()
     }
 
     while true {
-      var output = OutputRawSpan(buffer: buffer, initializedCount: 0)
+      var output = unsafe OutputRawSpan(buffer: buffer, initializedCount: 0)
       let count = try await connection.read(into: &output)
-      _ = output.finalize(for: buffer)
+      _ = unsafe output.finalize(for: buffer)
       if count == 0 {
         return
       }
-      try await connection.write(from: RawSpan(_unsafeBytes: UnsafeRawBufferPointer(rebasing: buffer[..<count])))
+      try await unsafe connection.write(from: RawSpan(_unsafeBytes: UnsafeRawBufferPointer(rebasing: buffer[..<count])))
     }
   }
 }

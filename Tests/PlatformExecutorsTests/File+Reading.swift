@@ -74,7 +74,7 @@ extension File.Readable {
 extension UniqueArray<UInt8> {
   /// Copies the bytes into an array.
   borrowing func copyToArray() -> [UInt8] {
-    self.span.withUnsafeBufferPointer { Array($0) }
+    self.span.withUnsafeBufferPointer { unsafe Array($0) }
   }
 }
 

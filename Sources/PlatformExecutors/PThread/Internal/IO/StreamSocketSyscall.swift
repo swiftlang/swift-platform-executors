@@ -24,16 +24,16 @@ import Darwin
 
 // The static methods below shadow the C functions of the same name,
 // so we have to alias them here.
-private let sysBind = bind
+private let sysBind = unsafe bind
 private let sysListen = listen
-private let sysConnect = connect
-private let sysSend = send
+private let sysConnect = unsafe connect
+private let sysSend = unsafe send
 private let sysShutdown = shutdown
 private let sysClose = close(descriptor:)
 #if canImport(Darwin)
-private let sysAccept = accept
+private let sysAccept = unsafe accept
 #else
-private let sysAccept4 = CPlatformExecutors_accept4
+private let sysAccept4 = unsafe CPlatformExecutors_accept4
 #endif
 
 /// The non-blocking stream socket syscalls that back the TCP operations.
@@ -94,9 +94,9 @@ enum StreamSocketSyscall {
   ///   - address: The address to bind to.
   @available(anyAppleOS 26.0, *)
   static func bind(_ fileDescriptor: CInt, to address: SocketAddress) throws(IOError) {
-    try address.withUnsafeSockAddress { (sockAddr, length) throws(IOError) -> Void in
+    try unsafe address.withUnsafeSockAddress { (sockAddr, length) throws(IOError) -> Void in
       try retryingIOSyscall(blocking: false) {
-        sysBind(fileDescriptor, sockAddr, length)
+        unsafe sysBind(fileDescriptor, sockAddr, length)
       }
     }
   }
@@ -124,7 +124,7 @@ enum StreamSocketSyscall {
     to address: UnsafePointer<sockaddr>,
     addressLength: socklen_t
   ) throws(IOError) -> Bool {
-    if sysConnect(fileDescriptor, address, addressLength) == 0 {
+    if unsafe sysConnect(fileDescriptor, address, addressLength) == 0 {
       return true
     }
 
@@ -215,7 +215,7 @@ enum StreamSocketSyscall {
     }
 
     let result = try retryingIOSyscall(blocking: true) {
-      recv(fileDescriptor, baseAddress, buffer.count, 0)
+      unsafe recv(fileDescriptor, baseAddress, buffer.count, 0)
     }
     guard case .processed(let count) = result else {
       return nil
@@ -246,7 +246,7 @@ enum StreamSocketSyscall {
     #endif
 
     let result = try retryingIOSyscall(blocking: true) {
-      sysSend(fileDescriptor, baseAddress, buffer.count, flags)
+      unsafe sysSend(fileDescriptor, baseAddress, buffer.count, flags)
     }
     guard case .processed(let count) = result else {
       return nil
@@ -299,8 +299,8 @@ enum StreamSocketSyscall {
     var length = socklen_t(MemoryLayout<sockaddr_storage>.size)
 
     let outcome = withUnsafeMutablePointer(to: &storage) { storagePointer in
-      storagePointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockAddr in
-        Self.getSocketName(fileDescriptor, into: sockAddr, length: &length)
+      unsafe storagePointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockAddr in
+        unsafe Self.getSocketName(fileDescriptor, into: sockAddr, length: &length)
       }
     }
     if case .failure(let error) = outcome {
@@ -322,7 +322,7 @@ enum StreamSocketSyscall {
   ) -> Swift.Result<Void, IOError> {
     do {
       try retryingIOSyscall(blocking: false) {
-        getsockname(fileDescriptor, address, &length)
+        unsafe getsockname(fileDescriptor, address, &length)
       }
       return .success(())
     } catch {
@@ -342,7 +342,7 @@ enum StreamSocketSyscall {
     var length = socklen_t(MemoryLayout<CInt>.size)
 
     try retryingIOSyscall(blocking: false) {
-      getsockopt(fileDescriptor, SOL_SOCKET, SO_ERROR, &error, &length)
+      unsafe getsockopt(fileDescriptor, SOL_SOCKET, SO_ERROR, &error, &length)
     }
 
     return error
@@ -363,7 +363,7 @@ enum StreamSocketSyscall {
   ) throws(IOError) {
     var value = value
     try retryingIOSyscall(blocking: false) {
-      setsockopt(fileDescriptor, level, name, &value, socklen_t(MemoryLayout<CInt>.size))
+      unsafe setsockopt(fileDescriptor, level, name, &value, socklen_t(MemoryLayout<CInt>.size))
     }
   }
 

@@ -93,7 +93,7 @@ struct ExecutorFixture {
     let order = Mutex<[Int]>([])
 
     await withCheckedContinuation { continuation in
-      let runLoopExecutor = serialExecutor as? RunLoopExecutor
+      let runLoopExecutor = serialExecutor as? (any RunLoopExecutor)
 
       // Enqueue the jobs from an enqueued job; this means that if the
       // executor does _not_ implement RunLoopExecutor, we can't be caught
@@ -193,7 +193,7 @@ struct ExecutorFixture {
     let start = clock.now
 
     await withCheckedContinuation { continuation in
-      let runLoopExecutor = schedulingExecutor as? RunLoopExecutor
+      let runLoopExecutor = schedulingExecutor as? (any RunLoopExecutor)
 
       for delay in delays.reversed() {
         let job = createJob(priority: .medium) {
@@ -288,7 +288,7 @@ struct ExecutorFixture {
     let timeOrder = Mutex<[C.Instant]>([])
 
     await withCheckedContinuation { continuation in
-      let runLoopExecutor = schedulingExecutor as? RunLoopExecutor
+      let runLoopExecutor = schedulingExecutor as? (any RunLoopExecutor)
 
       for target in targets.reversed() {
         let job = createJob(priority: .medium) {
@@ -394,7 +394,7 @@ struct ExecutorFixture {
     let counter = Mutex<Int>(30)
 
     await withCheckedContinuation { continuation in
-      let runLoopExecutor = taskExecutor as? RunLoopExecutor
+      let runLoopExecutor = taskExecutor as? (any RunLoopExecutor)
 
       for _ in 0..<10 {
         let highJob = createJob(priority: .high) {

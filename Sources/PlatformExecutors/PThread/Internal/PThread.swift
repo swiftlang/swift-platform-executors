@@ -36,8 +36,8 @@ private typealias ThreadDestructor = @convention(c) (UnsafeMutableRawPointer?) -
 #elseif os(Linux) || os(Android)
 import CPlatformExecutors
 
-private let sys_pthread_getname_np = CPlatformExecutors_pthread_getname_np
-private let sys_pthread_setname_np = CPlatformExecutors_pthread_setname_np
+private let sys_pthread_getname_np = unsafe CPlatformExecutors_pthread_getname_np
+private let sys_pthread_setname_np = unsafe CPlatformExecutors_pthread_setname_np
 #if os(Android)
 private typealias ThreadDestructor = @convention(c) (UnsafeMutableRawPointer) -> UnsafeMutableRawPointer
 #else
@@ -47,14 +47,14 @@ private typealias ThreadDestructor = @convention(c) (UnsafeMutableRawPointer?) -
 import CPlatformExecutors
 import Darwin
 
-private let sys_pthread_getname_np = pthread_getname_np
+private let sys_pthread_getname_np = unsafe pthread_getname_np
 // Emulate the same method signature as pthread_setname_np on Linux.
 private func sys_pthread_setname_np(
   _ p: pthread_t,
   _ pointer: UnsafePointer<Int8>
 ) -> Int32 {
-  assert(pthread_equal(pthread_self(), p) != 0)
-  pthread_setname_np(pointer)
+  unsafe assert(pthread_equal(pthread_self(), p) != 0)
+  unsafe pthread_setname_np(pointer)
   // Will never fail on macOS so just return 0 which will be used on linux to signal it not failed.
   return 0
 }
@@ -77,19 +77,19 @@ private func withThreadAttributes(
     return body(nil)
   }
   var attr = pthread_attr_t()
-  var result = pthread_attr_init(&attr)
+  var result = unsafe pthread_attr_init(&attr)
   guard result == 0 else {
     return result
   }
-  defer { pthread_attr_destroy(&attr) }
-  result = pthread_attr_setstacksize(
+  defer { unsafe pthread_attr_destroy(&attr) }
+  result = unsafe pthread_attr_setstacksize(
     &attr,
     CPlatformExecutors_pthread_normalized_stack_size(stackSize)
   )
   guard result == 0 else {
     return result
   }
-  return body(&attr)
+  return unsafe body(&attr)
 }
 
 private func sysPthread_create(
@@ -99,8 +99,8 @@ private func sysPthread_create(
   args: UnsafeMutableRawPointer?
 ) -> CInt {
   #if canImport(Darwin)
-  return withThreadAttributes(stackSize: stackSize) { attr in
-    pthread_create(handle, attr, destructor, args)
+  return unsafe withThreadAttributes(stackSize: stackSize) { attr in
+    unsafe pthread_create(handle, attr, destructor, args)
   }
   #elseif os(WASI)
   // wasi-libc's `pthread_t` is a pointer; the shim adds the explicit stack
@@ -120,21 +120,44 @@ private func sysPthread_create(
   #else
   var handleLinux = pthread_t()
   #endif
-  let result = withThreadAttributes(stackSize: stackSize) { attr in
-    pthread_create(
+  let result = unsafe withThreadAttributes(stackSize: stackSize) { attr in
+    unsafe pthread_create(
       &handleLinux,
       attr,
       destructor,
       args
     )
   }
-  handle.pointee = handleLinux
+  unsafe handle.pointee = handleLinux
   return result
   #endif
 }
 
 enum PThread {
-  typealias ThreadHandle = pthread_t
+  /// The handle of a thread.
+  ///
+  /// A `pthread_t` is a pointer on some platforms and an integer on others so this wraps it to be memory safe on all of them.
+  @safe
+  struct ThreadHandle: @unchecked Sendable {
+    /// The bits of the `pthread_t`.
+    fileprivate var bits: UInt
+
+    /// Creates a handle of the calling thread.
+    fileprivate init() {
+      self.bits = 0
+      withUnsafeMutableBytes(of: &self.bits) { unsafe $0.storeBytes(of: pthread_self(), as: pthread_t.self) }
+    }
+
+    /// Creates a handle of the thread that `pthread_create` stored.
+    fileprivate init(created thread: UnsafePointer<pthread_t?>) {
+      self.bits = withUnsafeBytes(of: unsafe thread.pointee!) { unsafe $0.load(as: UInt.self) }
+    }
+
+    @unsafe
+    fileprivate var rawValue: pthread_t {
+      withUnsafeBytes(of: self.bits) { unsafe $0.load(as: pthread_t.self) }
+    }
+  }
   typealias ThreadSpecificKey = pthread_key_t
   #if canImport(Darwin)
   typealias ThreadSpecificKeyDestructor = @convention(c) (UnsafeMutableRawPointer) -> Void
@@ -148,33 +171,33 @@ enum PThread {
     // anyway.
     var chars: [CChar] = Array(repeating: 0, count: 64)
     return chars.withUnsafeMutableBufferPointer { ptr in
-      guard sys_pthread_getname_np(thread, ptr.baseAddress!, ptr.count) == 0 else {
+      guard unsafe sys_pthread_getname_np(thread.rawValue, ptr.baseAddress!, ptr.count) == 0 else {
         return nil
       }
 
       let buffer: UnsafeRawBufferPointer =
-        UnsafeRawBufferPointer(UnsafeBufferPointer<CChar>(rebasing: ptr.prefix { $0 != 0 }))
-      return String(decoding: buffer, as: Unicode.UTF8.self)
+        unsafe UnsafeRawBufferPointer(UnsafeBufferPointer<CChar>(rebasing: ptr.prefix { $0 != 0 }))
+      return unsafe String(decoding: buffer, as: Unicode.UTF8.self)
     }
   }
 
   static func run(
-    handle: inout PThread.ThreadHandle?,
     stackSize: Int?,
     args: Box<Thread.ThreadBoxValue>
-  ) {
-    let argv0 = Unmanaged.passRetained(args).toOpaque()
-    let res = sysPthread_create(
+  ) -> PThread.ThreadHandle {
+    var handle: pthread_t? = nil
+    let argv0 = unsafe Unmanaged.passRetained(args).toOpaque()
+    let res = unsafe sysPthread_create(
       handle: &handle,
       stackSize: stackSize,
       destructor: {
         // Cast to UnsafeMutableRawPointer? and force unwrap to make the
         // same code work on macOS and Linux.
-        let boxed = Unmanaged<Thread.ThreadBox>
+        let boxed = unsafe Unmanaged<Thread.ThreadBox>
           .fromOpaque(($0 as UnsafeMutableRawPointer?)!)
           .takeRetainedValue()
         let (body, name) = (boxed.value.body, boxed.value.name)
-        let hThread: PThread.ThreadHandle = pthread_self()
+        let hThread = unsafe ThreadHandle().rawValue
 
         if let name = name {
           let maximumThreadNameLength: Int
@@ -186,7 +209,7 @@ enum PThread {
           name.prefix(maximumThreadNameLength).withCString { namePtr in
             // this is non-critical so we ignore the result here, we've seen
             // EPERM in containers.
-            _ = sys_pthread_setname_np(hThread, namePtr)
+            _ = unsafe sys_pthread_setname_np(hThread, namePtr)
           }
         }
 
@@ -198,41 +221,40 @@ enum PThread {
         return nil
         #endif
       },
-      args: argv0
+      args: unsafe argv0
     )
     precondition(res == 0, "Unable to create thread: \(res)")
+    return unsafe ThreadHandle(created: &handle)
   }
 
   static func isCurrentThread(_ thread: PThread.ThreadHandle) -> Bool {
     #if os(WASI)
     // wasi-libc's pthread_equal is a function-like macro (pointer identity).
-    return thread == pthread_self()
+    return unsafe thread.rawValue == ThreadHandle().rawValue
     #else
-    return pthread_equal(thread, pthread_self()) != 0
+    return unsafe pthread_equal(thread.rawValue, ThreadHandle().rawValue) != 0
     #endif
   }
 
   static var currentThread: PThread.ThreadHandle {
-    return pthread_self()
+    return ThreadHandle()
   }
 
   /// An identity of the calling thread that fits into an atomic.
   static var currentThreadIdentity: UInt {
-    let thread = pthread_self()
-    assert(MemoryLayout.size(ofValue: thread) == MemoryLayout<UInt>.size)
-    return withUnsafeBytes(of: thread) { $0.load(as: UInt.self) }
+    return ThreadHandle().bits
   }
 
   static func compareThreads(_ lhs: PThread.ThreadHandle, _ rhs: PThread.ThreadHandle) -> Bool {
     #if os(WASI)
-    return lhs == rhs
+    return unsafe lhs.rawValue == rhs.rawValue
     #else
-    return pthread_equal(lhs, rhs) != 0
+    return unsafe pthread_equal(lhs.rawValue, rhs.rawValue) != 0
     #endif
   }
 
   static func joinThread(_ thread: PThread.ThreadHandle) {
-    let result = pthread_join(thread, nil)
+    let result = unsafe pthread_join(thread.rawValue, nil)
     precondition(result == 0, "pthread_join failed with error code: \(result)")
   }
 }

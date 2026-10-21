@@ -201,7 +201,7 @@ private actor StackSizeActor {
   }
 
   nonisolated var unownedExecutor: UnownedSerialExecutor {
-    self.executor.asUnownedSerialExecutor()
+    unsafe self.executor.asUnownedSerialExecutor()
   }
 
   func currentStackSize() -> Int {

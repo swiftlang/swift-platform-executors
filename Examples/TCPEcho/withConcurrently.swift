@@ -48,14 +48,14 @@ private nonisolated(nonsending) func _withConcurrently<First: Sendable, Second: 
   ) { group -> Result<(First, Second), Failure> in
     group.addTask {
       do throws(Failure) {
-        return .first(try await first())
+        return unsafe .first(try await first())
       } catch {
         return .failure(error)
       }
     }
     group.addTask {
       do throws(Failure) {
-        return .second(try await second())
+        return unsafe .second(try await second())
       } catch {
         return .failure(error)
       }

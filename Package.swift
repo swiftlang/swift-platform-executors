@@ -1,4 +1,4 @@
-// swift-tools-version: 6.2
+// swift-tools-version: 6.4
 import PackageDescription
 
 // Make sure that when the Swift Package Index builds our documentation,
@@ -154,16 +154,15 @@ where [.executable, .test, .regular].contains(
 
   // https://github.com/apple/swift-evolution/blob/main/proposals/0335-existential-any.md
   // Require `any` for existential types.
-  //  settings.append(.enableUpcomingFeature("ExistentialAny"))
+  settings.append(.enableUpcomingFeature("ExistentialAny"))
 
   // https://github.com/swiftlang/swift-evolution/blob/main/proposals/0444-member-import-visibility.md
-  //  settings.append(.enableUpcomingFeature("MemberImportVisibility"))
+  settings.append(.enableUpcomingFeature("MemberImportVisibility"))
 
   // https://github.com/swiftlang/swift-evolution/blob/main/proposals/0409-access-level-on-imports.md
-  //  settings.append(.enableUpcomingFeature("InternalImportsByDefault"))
+  settings.append(.enableUpcomingFeature("InternalImportsByDefault"))
 
   // https://github.com/swiftlang/swift-evolution/blob/main/proposals/0461-async-function-isolation.md
-  // Only enabled from Swift 6.4 on, since older compilers crash on parts of the code base with this feature enabled
   settings.append(.enableUpcomingFeature("NonisolatedNonsendingByDefault"))
 
   // Lifetime dependencies of non-escapable types such as the halves of a split TCP connection.
@@ -172,8 +171,11 @@ where [.executable, .test, .regular].contains(
   // `Builtin.stackAlloc` for temporary allocations that outlive the suspension points of an `async` function.
   settings.append(.enableExperimentalFeature("BuiltinModule"))
 
-  //  // https://github.com/swiftlang/swift-evolution/blob/main/proposals/0480-swiftpm-warning-control.md
-  //  settings.append(.treatAllWarnings(as: .error))
+  // https://github.com/swiftlang/swift-evolution/blob/main/proposals/0480-swiftpm-warning-control.md
+  settings.append(.treatAllWarnings(as: .error))
+
+  // https://github.com/swiftlang/swift-evolution/blob/main/proposals/0458-strict-memory-safety.md
+  settings.append(.strictMemorySafety())
 
   target.swiftSettings = settings
 }

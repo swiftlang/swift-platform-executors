@@ -38,27 +38,27 @@ nonisolated(nonsending) func withTemporaryAllocation<T: ~Copyable, R: ~Copyable,
   // `withFrameAllocation(_:)` for why that matters.
   var result: Result<R, E>? = nil
   func initialize(_ pointer: UnsafeMutableRawPointer) async {
-    let buffer = UnsafeMutableBufferPointer<T>(
+    let buffer = unsafe UnsafeMutableBufferPointer<T>(
       start: pointer.bindMemory(to: T.self, capacity: capacity),
       count: capacity
     )
-    var span = OutputSpan(buffer: buffer, initializedCount: 0)
+    var span = unsafe OutputSpan(buffer: buffer, initializedCount: 0)
     do throws(E) {
       result = .success(try await body(&span))
     } catch {
       result = .failure(error)
     }
-    let initializedCount = span.finalize(for: buffer)
-    buffer.extracting(..<initializedCount).deinitialize()
+    let initializedCount = unsafe span.finalize(for: buffer)
+    unsafe buffer.extracting(..<initializedCount).deinitialize()
   }
 
   // This matches the limits of the standard library's temporary allocations.
   if byteCount <= 1024 && MemoryLayout<T>.alignment <= 16 {
-    await withFrameAllocation(initialize)
+    await unsafe withFrameAllocation(initialize)
   } else {
     let pointer = UnsafeMutableRawPointer.allocate(byteCount: byteCount, alignment: MemoryLayout<T>.alignment)
-    await initialize(pointer)
-    pointer.deallocate()
+    await unsafe initialize(pointer)
+    unsafe pointer.deallocate()
   }
   return try result.take()!.get()
 }
@@ -85,7 +85,7 @@ private nonisolated(nonsending) func withFrameAllocation(
     1._builtinWordValue,
     16._builtinWordValue
   )
-  await body(UnsafeMutableRawPointer(address))
+  await unsafe body(UnsafeMutableRawPointer(address))
   Builtin.stackDealloc(address)
 }
 #endif

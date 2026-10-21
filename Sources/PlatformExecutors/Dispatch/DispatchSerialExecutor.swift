@@ -17,19 +17,20 @@ import Dispatch
 /// This wrapper primarly exists since we need to call the `runSynchronously`
 /// with the ``PlatformSerialExecutor`` for the tracking to work correctly.
 @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+@safe
 package final class DispatchSerialExecutor: SerialExecutor, @unchecked Sendable {
   private let queue: DispatchQueue
   private let serialExecutor: UnownedSerialExecutor
 
   package init(name: String, serialExecutor: UnownedSerialExecutor) {
     self.queue = DispatchQueue(label: name)
-    self.serialExecutor = serialExecutor
+    unsafe self.serialExecutor = unsafe serialExecutor
   }
 
   package func enqueue(_ job: consuming ExecutorJob) {
     let job = UnownedJob(job)
     self.queue.async {
-      job.runSynchronously(on: self.serialExecutor)
+      unsafe job.runSynchronously(on: self.serialExecutor)
     }
   }
 }
