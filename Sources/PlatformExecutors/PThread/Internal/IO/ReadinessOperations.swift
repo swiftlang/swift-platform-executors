@@ -155,7 +155,7 @@ struct ReadinessOperations: ~Copyable {
     switch unsafe operation {
     case .connect(let socket, let address, let addressLength):
       do {
-        return try unsafe StreamSocketSyscall.connect(
+        return try unsafe SocketSyscall.connect(
           socket,
           to: address,
           addressLength: addressLength
@@ -166,28 +166,42 @@ struct ReadinessOperations: ~Copyable {
 
     case .accept(let socket):
       do {
-        return try StreamSocketSyscall.accept(socket).map { .success(Int($0)) }
+        return try SocketSyscall.accept(socket).map { .success(Int($0)) }
       } catch {
         return .failure(error)
       }
 
     case .read(let socket, let buffer):
       do {
-        return try unsafe StreamSocketSyscall.receive(socket, into: buffer).map { .success($0) }
+        return try unsafe SocketSyscall.receive(socket, into: buffer).map { .success($0) }
       } catch {
         return .failure(error)
       }
 
     case .write(let socket, let buffer):
       do {
-        return try unsafe StreamSocketSyscall.send(socket, from: buffer).map { .success($0) }
+        return try unsafe SocketSyscall.send(socket, from: buffer).map { .success($0) }
+      } catch {
+        return .failure(error)
+      }
+
+    case .sendMessage(let socket, let message):
+      do {
+        return try unsafe SocketSyscall.sendMessage(socket, message).map { .success($0) }
+      } catch {
+        return .failure(error)
+      }
+
+    case .receiveMessage(let socket, let message):
+      do {
+        return try unsafe SocketSyscall.receiveMessage(socket, message).map { .success($0) }
       } catch {
         return .failure(error)
       }
 
     case .shutdown(let socket, let direction):
       do {
-        try StreamSocketSyscall.shutdown(socket, direction: direction)
+        try SocketSyscall.shutdown(socket, direction: direction)
         return .success(0)
       } catch {
         return .failure(error)
@@ -219,7 +233,7 @@ struct ReadinessOperations: ~Copyable {
     }
 
     do {
-      let errnoCode = try StreamSocketSyscall.pendingError(socket)
+      let errnoCode = try SocketSyscall.pendingError(socket)
       guard errnoCode == 0 else {
         return .failure(IOError(errnoCode: errnoCode))
       }
@@ -232,9 +246,9 @@ struct ReadinessOperations: ~Copyable {
   /// The direction that an operation waits for.
   private static func direction(of operation: IOOperation) -> ReadinessInterest {
     switch unsafe operation {
-    case .connect, .write:
+    case .connect, .write, .sendMessage:
       return .write
-    case .accept, .read:
+    case .accept, .read, .receiveMessage:
       return .read
     case .shutdown, .close:
       // Neither waits for readiness.
@@ -262,7 +276,7 @@ struct ReadinessOperations: ~Copyable {
       // TODO: We might want to use a different error code here than cancelled.
       self.failPendingOperations(on: socket, with: IOError(code: .cancelled))
       do {
-        try StreamSocketSyscall.close(socket)
+        try SocketSyscall.close(socket)
         self.resolve(id, with: .success(0))
       } catch {
         self.resolve(id, with: .failure(error))
@@ -271,14 +285,14 @@ struct ReadinessOperations: ~Copyable {
 
     case .shutdown(let socket, let direction):
       do {
-        try StreamSocketSyscall.shutdown(socket, direction: direction)
+        try SocketSyscall.shutdown(socket, direction: direction)
         self.resolve(id, with: .success(0))
       } catch {
         self.resolve(id, with: .failure(error))
       }
       return nil
 
-    case .connect, .accept, .read, .write:
+    case .connect, .accept, .read, .write, .sendMessage, .receiveMessage:
       break
 
     case .openFile, .readFile, .writeFile:
