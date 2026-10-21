@@ -108,6 +108,45 @@ let benchmarks: @Sendable () -> Void = {
   }
 
   ioBenchmark(
+    "UDPPingPong",
+    configuration: .init(
+      metrics: defaultMetrics,
+      scalingFactor: .kilo,
+      maxDuration: .seconds(10_000_000),
+      maxIterations: 5
+    )
+  ) { benchmark, ioBackend in
+    guard #available(anyAppleOS 27.0, *) else {
+      fatalError("The UDP ping pong benchmark requires the I/O APIs.")
+    }
+    try await runUDPPingPong(
+      numberOfDatagrams: benchmark.scaledIterations.upperBound,
+      ioBackend: ioBackend,
+      benchmark: benchmark
+    )
+  }
+
+  // Every iteration is a burst of 32 datagrams.
+  ioBenchmark(
+    "UDPBurst",
+    configuration: .init(
+      metrics: defaultMetrics,
+      scalingFactor: .kilo,
+      maxDuration: .seconds(10_000_000),
+      maxIterations: 5
+    )
+  ) { benchmark, ioBackend in
+    guard #available(anyAppleOS 27.0, *) else {
+      fatalError("The UDP burst benchmark requires the I/O APIs.")
+    }
+    try await runUDPBurst(
+      numberOfBursts: benchmark.scaledIterations.upperBound,
+      ioBackend: ioBackend,
+      benchmark: benchmark
+    )
+  }
+
+  ioBenchmark(
     "TCPEcho",
     configuration: .init(
       metrics: defaultMetrics,
