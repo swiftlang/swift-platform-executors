@@ -11,10 +11,10 @@
 //===----------------------------------------------------------------------===//
 
 #if ExperimentalIO
-/// A UDP socket.
+/// A UDP socket that sends datagrams to, and receives datagrams from, any peer.
 ///
-/// A socket sends and receives datagrams to and from any peer. It is created by binding it to a local
-/// address with ``bind(to:)``.
+/// A socket is created by binding it to a local address with ``bind(to:)``. To exchange datagrams with one
+/// peer only, connect it with ``connect(to:)``, which turns it into a ``UDPConnection``.
 ///
 /// A socket uniquely owns the underlying platform resource, so it cannot be copied. It must be closed
 /// explicitly with ``close()`` since closing is an asynchronous operation, and destroying a socket without
@@ -28,18 +28,10 @@
 /// ```
 @available(anyAppleOS 27.0, *)
 public struct UDPSocket: ~Copyable, Sendable {
-  /// The scheduler that services the socket.
-  private let scheduler: any UDPSocketOperationScheduler
+  private var core: UDPCore
 
-  /// The scheduler's handle of the socket, or `nil` once the socket is closed.
-  private var socket: (any Sendable)?
-
-  private init<Scheduler: UDPSocketOperationScheduler>(
-    scheduler: Scheduler,
-    socket: Scheduler.UDPSocket
-  ) {
-    self.scheduler = scheduler
-    self.socket = socket
+  private init(core: consuming UDPCore) {
+    self.core = core
   }
 
   /// Creates a new socket and binds it to the given address.
@@ -48,35 +40,14 @@ public struct UDPSocket: ~Copyable, Sendable {
   ///   which ``localAddress`` reports afterwards.
   /// - Returns: The bound socket.
   public static func bind(to address: SocketAddress) async throws(IOError) -> UDPSocket {
-    guard
-      let scheduler = OperationSchedulerPreference.resolve(as: (any UDPSocketOperationScheduler).self)
-    else {
-      fatalError(
-        "No operation scheduler for UDP sockets found. Use withOperationScheduler or a task executor preference."
-      )
-    }
-    return try await Self.bind(to: address, on: scheduler)
+    UDPSocket(core: try await UDPCore.bind(to: address))
   }
 
-  private static func bind<Scheduler: UDPSocketOperationScheduler>(
-    to address: SocketAddress,
-    on scheduler: Scheduler
-  ) async throws(IOError) -> UDPSocket {
-    let socket = try await scheduler.bind(to: address)
-    return UDPSocket(scheduler: scheduler, socket: socket)
-  }
-
-  /// The address that the socket is bound to.
+  /// The address that the socket is bound to locally.
   public var localAddress: SocketAddress {
     get throws(IOError) {
-      try self.localAddress(on: self.scheduler)
+      try self.core.localAddress
     }
-  }
-
-  private func localAddress<Scheduler: UDPSocketOperationScheduler>(
-    on scheduler: Scheduler
-  ) throws(IOError) -> SocketAddress {
-    try scheduler.localAddress(of: self.socket(of: scheduler))
   }
 
   /// Receives one datagram into the free capacity of the given buffer.
@@ -90,14 +61,7 @@ public struct UDPSocket: ~Copyable, Sendable {
   public mutating func receive(
     into buffer: inout OutputRawSpan
   ) async throws(IOError) -> (count: Int, sender: SocketAddress) {
-    try await self.receive(into: &buffer, on: self.scheduler)
-  }
-
-  private func receive<Scheduler: UDPSocketOperationScheduler>(
-    into buffer: inout OutputRawSpan,
-    on scheduler: Scheduler
-  ) async throws(IOError) -> (count: Int, sender: SocketAddress) {
-    try await scheduler.receive(socket: self.socket(of: scheduler), into: &buffer)
+    try await UDPCore.receive(into: &buffer, socket: self.core.socket, on: self.core.scheduler)
   }
 
   /// Sends the bytes of the given buffer as one datagram to the given address.
@@ -109,48 +73,111 @@ public struct UDPSocket: ~Copyable, Sendable {
     from buffer: RawSpan,
     to address: SocketAddress
   ) async throws(IOError) {
-    try await self.send(from: buffer, to: address, on: self.scheduler)
+    try await UDPCore.send(from: buffer, to: address, socket: self.core.socket, on: self.core.scheduler)
   }
 
-  private func send<Scheduler: UDPSocketOperationScheduler>(
-    from buffer: RawSpan,
-    to address: SocketAddress,
-    on scheduler: Scheduler
-  ) async throws(IOError) {
-    // A datagram is sent as a whole or not at all.
-    _ = try await scheduler.send(socket: self.socket(of: scheduler), from: buffer, to: address)
+  /// Connects the socket to the given address, so that it only exchanges datagrams with that peer.
+  ///
+  /// The socket keeps its local address. Connecting does not send anything, so it succeeds even if nobody
+  /// listens at the address. The platform drops the datagrams of everyone else from then on.
+  ///
+  /// - Important: If connecting fails the socket is closed.
+  ///
+  /// - Parameter address: The address of the peer.
+  /// - Returns: The connected socket.
+  public consuming func connect(to address: SocketAddress) async throws(IOError) -> UDPConnection {
+    UDPConnection(core: try await self.core.connected(to: address))
   }
 
   /// Closes the socket.
   public consuming func close() async throws(IOError) {
-    try await Self.close(self.socket.take(), on: self.scheduler)
+    try await self.core.close()
   }
+}
 
-  private static func close<Scheduler: UDPSocketOperationScheduler>(
-    _ socket: (any Sendable)?,
-    on scheduler: Scheduler
-  ) async throws(IOError) {
-    let socket = socket as! Scheduler.UDPSocket
-    try await withTaskCancellationShield { () async throws(IOError) -> Void in
-      try await scheduler.close(socket: socket)
+// MARK: - Receiving and sending concurrently
+
+@available(anyAppleOS 27.0, *)
+extension UDPSocket {
+  /// The receiving direction of a socket, lent out by ``UDPSocket/withSplit(_:)``.
+  public struct ReceiveHalf: ~Copyable, ~Escapable, Sendable {
+    /// The scheduler that services the socket.
+    private let scheduler: any UDPSocketOperationScheduler
+
+    /// The scheduler's handle of the socket.
+    private let socket: (any Sendable)?
+
+    @_lifetime(borrow owner)
+    fileprivate init(_ owner: borrowing UDPSocket) {
+      self.scheduler = owner.core.scheduler
+      self.socket = owner.core.socket
+    }
+
+    /// Receives one datagram into the free capacity of the given buffer.
+    ///
+    /// The bytes are appended to the buffer. A datagram that is larger than the free capacity of the buffer
+    /// is truncated, and its remaining bytes are discarded.
+    ///
+    /// - Parameter buffer: The buffer to receive into.
+    /// - Returns: The number of bytes received and the address of the sender.
+    @discardableResult
+    public mutating func receive(
+      into buffer: inout OutputRawSpan
+    ) async throws(IOError) -> (count: Int, sender: SocketAddress) {
+      try await UDPCore.receive(into: &buffer, socket: self.socket, on: self.scheduler)
     }
   }
 
-  /// Returns the handle of the socket as the handle type of the given scheduler.
+  /// The sending direction of a socket, lent out by ``UDPSocket/withSplit(_:)``.
+  public struct SendHalf: ~Copyable, ~Escapable, Sendable {
+    /// The scheduler that services the socket.
+    private let scheduler: any UDPSocketOperationScheduler
+
+    /// The scheduler's handle of the socket.
+    private let socket: (any Sendable)?
+
+    @_lifetime(borrow owner)
+    fileprivate init(_ owner: borrowing UDPSocket) {
+      self.scheduler = owner.core.scheduler
+      self.socket = owner.core.socket
+    }
+
+    /// Sends the bytes of the given buffer as one datagram to the given address.
+    ///
+    /// - Parameters:
+    ///   - buffer: The bytes of the datagram.
+    ///   - address: The address to send the datagram to.
+    public mutating func send(from buffer: RawSpan, to address: SocketAddress) async throws(IOError) {
+      try await UDPCore.send(from: buffer, to: address, socket: self.socket, on: self.scheduler)
+    }
+  }
+
+  /// Lends the receiving and the sending direction of the socket to the given closure.
   ///
-  /// - Parameter scheduler: The scheduler that services the socket.
-  private func socket<Scheduler: UDPSocketOperationScheduler>(
-    of scheduler: Scheduler
-  ) -> Scheduler.UDPSocket {
-    // The handle was created by this scheduler, and it is only `nil` once
-    // the socket is closed, which consumes it. So the cast cannot fail.
-    self.socket as! Scheduler.UDPSocket
-  }
-
-  deinit {
-    if self.socket != nil {
-      fatalError("A UDPSocket was destroyed without being closed.")
-    }
+  /// The halves can be used concurrently allowing protocols to send and receive independently. Their
+  /// methods are `mutating`, so that every half is only used by one task at a time.
+  ///
+  /// ```swift
+  /// try await socket.withSplit { receiveHalf, sendHalf in
+  ///   try await withConcurrently {
+  ///     try await receiveReplies(from: &receiveHalf)
+  ///   } _: {
+  ///     try await sendHalf.send(from: request, to: address)
+  ///   }
+  /// }
+  /// ```
+  ///
+  /// - Important: The halves cannot escape the closure, so the socket keeps owning the platform resource
+  ///   and must still be closed afterwards.
+  ///
+  /// - Parameter body: The closure that the halves are lent to.
+  /// - Returns: The value that the closure returned.
+  public nonisolated(nonsending) func withSplit<Return, Failure: Error>(
+    _ body: nonisolated(nonsending) (inout ReceiveHalf, inout SendHalf) async throws(Failure) -> Return
+  ) async throws(Failure) -> Return {
+    var receiveHalf = ReceiveHalf(self)
+    var sendHalf = SendHalf(self)
+    return try await body(&receiveHalf, &sendHalf)
   }
 }
 #endif
