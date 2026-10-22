@@ -184,15 +184,16 @@ final class ConditionVariable<Value: ~Copyable>: @unchecked Sendable {
     return unsafe block(&state)
   }
 
-  /// Runs the block while holding the lock, and signals one waiter afterwards only if the block asks for it.
+  /// Runs the block while holding the lock, and signals one waiter only if the
+  /// block asks for it.
+  ///
+  /// The signal is sent after the lock is released.
   func withLockAndSignalIfNeeded<Return>(
     _ block: (inout sending Value) -> (shouldSignal: Bool, result: Return)
   ) -> Return {
     self._lock()
-    defer {
-      self._unlock()
-    }
     let (shouldSignal, result) = unsafe block(&state)
+    self._unlock()
     if shouldSignal {
       self._signal()
     }
