@@ -137,6 +137,92 @@ struct UDPSocketTests {
     }
   }
 
+  @Test(arguments: PThreadIOBackend.tested, [1, 4])
+  @available(anyAppleOS 27.0, *)
+  func connectedSocketExchangesWithItsPeer(ioBackend: PThreadIOBackend, poolSize: Int) async throws {
+    try await PThreadTaskExecutor.withExecutor(name: "UDPSocketTest", poolSize: poolSize, ioBackend: ioBackend) {
+      executor in
+      try await withTaskExecutorPreference(executor) {
+        var server = try await UDPSocket.bind(to: Self.loopback)
+        var client = try await UDPConnection.connect(to: server.localAddress)
+
+        try await client.write(Array("ping".utf8))
+        let (request, requestSender) = try await server.receive(maxCount: 1024)
+        #expect(request == Array("ping".utf8))
+        #expect(requestSender == (try client.localAddress))
+
+        try await server.send(Array("pong".utf8), to: requestSender)
+        let reply = try await client.read(maxCount: 1024)
+        #expect(reply == Array("pong".utf8))
+
+        try await client.close()
+        try await server.close()
+      }
+    }
+  }
+
+  @Test(arguments: PThreadIOBackend.tested, [1, 4])
+  @available(anyAppleOS 27.0, *)
+  func withSplitReceivesWhileSending(ioBackend: PThreadIOBackend, poolSize: Int) async throws {
+    try await PThreadTaskExecutor.withExecutor(name: "UDPSocketTest", poolSize: poolSize, ioBackend: ioBackend) {
+      executor in
+      try await withTaskExecutorPreference(executor) {
+        try await withThrowingTaskGroup { group in
+          let bound = try await UDPSocket.bind(to: Self.loopback)
+          let serverAddress = try bound.localAddress
+          var serverBox: UDPSocket? = bound
+
+          // The server echoes one datagram.
+          group.addTask {
+            var server = serverBox.take()!
+            let (datagram, sender) = try await server.receive(maxCount: 1024)
+            try await server.send(datagram, to: sender)
+            try await server.close()
+          }
+
+          let client = try await UDPConnection.connect(to: serverAddress)
+          let payload = Array("Echo me".utf8)
+          let echoed = try await client.withSplit { readHalf, writeHalf in
+            let (echoed, _) = try await withConcurrently {
+              try await readHalf.read(maxCount: 1024)
+            } _: {
+              try await writeHalf.write(payload)
+            }
+            return echoed
+          }
+          try await client.close()
+          try await group.waitForAll()
+          #expect(echoed == payload)
+        }
+      }
+    }
+  }
+
+  @Test(arguments: PThreadIOBackend.tested)
+  @available(anyAppleOS 27.0, *)
+  func connectingABoundSocketKeepsItsAddressAndReportsThePeer(ioBackend: PThreadIOBackend) async throws {
+    try await PThreadExecutor.withExecutor(name: "UDPSocketTest", ioBackend: ioBackend) { executor in
+      try await withOperationScheduler(executor) {
+        var server = try await UDPSocket.bind(to: Self.loopback)
+        let serverAddress = try server.localAddress
+
+        let bound = try await UDPSocket.bind(to: Self.loopback)
+        let boundAddress = try bound.localAddress
+        var client = try await bound.connect(to: serverAddress)
+        #expect(try client.localAddress == boundAddress)
+        #expect(try client.remoteAddress == serverAddress)
+
+        try await client.write(Array("ping".utf8))
+        let (request, sender) = try await server.receive(maxCount: 1024)
+        #expect(request == Array("ping".utf8))
+        #expect(sender == boundAddress)
+
+        try await client.close()
+        try await server.close()
+      }
+    }
+  }
+
   /// Sends a datagram to a socket, which sends a reply to the address it received the datagram from.
   @available(anyAppleOS 27.0, *)
   private static func exchange() async throws {
@@ -175,6 +261,44 @@ extension UDPSocket {
   /// Sends the bytes as one datagram.
   fileprivate mutating func send(_ bytes: [UInt8], to address: SocketAddress) async throws(IOError) {
     try await self.send(from: bytes.span.bytes, to: address)
+  }
+}
+@available(anyAppleOS 27.0, *)
+extension UDPConnection {
+  /// Reads one datagram of at most `maxCount` bytes from the peer of a connected socket.
+  fileprivate mutating func read(maxCount: Int) async throws(IOError) -> [UInt8] {
+    var buffer = UniqueArray<UInt8>(minimumCapacity: maxCount)
+    _ = try await buffer.append(addingByteCount: maxCount) {
+      (output: inout OutputRawSpan) async throws(IOError) -> Int in
+      try await self.read(into: &output)
+    }
+    return (0..<buffer.count).map { buffer[$0] }
+  }
+
+  /// Writes the bytes as one datagram to the peer of a connected socket.
+  fileprivate mutating func write(_ bytes: [UInt8]) async throws(IOError) {
+    try await self.write(from: bytes.span.bytes)
+  }
+}
+
+@available(anyAppleOS 27.0, *)
+extension UDPConnection.ReadHalf {
+  /// Reads one datagram of at most `maxCount` bytes.
+  fileprivate mutating func read(maxCount: Int) async throws(IOError) -> [UInt8] {
+    var buffer = UniqueArray<UInt8>(minimumCapacity: maxCount)
+    _ = try await buffer.append(addingByteCount: maxCount) {
+      (output: inout OutputRawSpan) async throws(IOError) -> Int in
+      try await self.read(into: &output)
+    }
+    return (0..<buffer.count).map { buffer[$0] }
+  }
+}
+
+@available(anyAppleOS 27.0, *)
+extension UDPConnection.WriteHalf {
+  /// Writes the bytes as one datagram.
+  fileprivate mutating func write(_ bytes: [UInt8]) async throws(IOError) {
+    try await self.write(from: bytes.span.bytes)
   }
 }
 #endif

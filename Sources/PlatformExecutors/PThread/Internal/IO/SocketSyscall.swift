@@ -325,12 +325,29 @@ enum SocketSyscall {
   /// - Returns: The address that the socket is bound to.
   @available(anyAppleOS 26.0, *)
   static func localAddress(_ fileDescriptor: CInt) throws(IOError) -> SocketAddress {
+    try unsafe Self.address(of: fileDescriptor) { unsafe getsockname($0, $1, $2) }
+  }
+
+  /// Returns the address of the peer that the socket is connected to.
+  ///
+  /// - Parameter fileDescriptor: The file descriptor of the socket.
+  /// - Returns: The address of the peer.
+  @available(anyAppleOS 26.0, *)
+  static func peerAddress(_ fileDescriptor: CInt) throws(IOError) -> SocketAddress {
+    try unsafe Self.address(of: fileDescriptor) { unsafe getpeername($0, $1, $2) }
+  }
+
+  /// Reads an address of the socket with the given function.
+  private static func address(
+    of fileDescriptor: CInt,
+    using function: (CInt, UnsafeMutablePointer<sockaddr>, UnsafeMutablePointer<socklen_t>) -> CInt
+  ) throws(IOError) -> SocketAddress {
     var storage = sockaddr_storage()
     var length = socklen_t(MemoryLayout<sockaddr_storage>.size)
 
     let outcome = withUnsafeMutablePointer(to: &storage) { storagePointer in
       unsafe storagePointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockAddr in
-        unsafe Self.getSocketName(fileDescriptor, into: sockAddr, length: &length)
+        unsafe Self.getAddress(fileDescriptor, into: sockAddr, length: &length, using: function)
       }
     }
     if case .failure(let error) = outcome {
@@ -344,15 +361,16 @@ enum SocketSyscall {
     return address
   }
 
-  /// Reads the address that the socket is bound to into the given storage.
-  private static func getSocketName(
+  /// Reads an address of the socket into the given storage.
+  private static func getAddress(
     _ fileDescriptor: CInt,
     into address: UnsafeMutablePointer<sockaddr>,
-    length: inout socklen_t
+    length: inout socklen_t,
+    using function: (CInt, UnsafeMutablePointer<sockaddr>, UnsafeMutablePointer<socklen_t>) -> CInt
   ) -> Swift.Result<Void, IOError> {
     do {
       try retryingIOSyscall(blocking: false) {
-        unsafe getsockname(fileDescriptor, address, &length)
+        unsafe function(fileDescriptor, address, &length)
       }
       return .success(())
     } catch {
