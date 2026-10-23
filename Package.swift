@@ -50,7 +50,7 @@ let package = Package(
   dependencies: [
     .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0"),
     // Uses a custom branch until the io_uring socket APIs land
-    .package(url: "https://github.com/apple/swift-system.git", branch: "fb-io-uring-sockets"),
+    .package(url: "https://github.com/apple/swift-system.git", branch: "fb-io-uring-udp-messages"),
     .package(
       url: "https://github.com/apple/swift-collections.git",
       exact: "1.7.1",

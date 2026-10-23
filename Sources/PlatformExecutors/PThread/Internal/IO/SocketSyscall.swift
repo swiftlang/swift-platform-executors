@@ -30,36 +30,66 @@ private let sysConnect = unsafe connect
 private let sysSend = unsafe send
 private let sysShutdown = shutdown
 private let sysClose = close(descriptor:)
+private let sysSendMessage = unsafe sendmsg
+private let sysReceiveMessage = unsafe recvmsg
 #if canImport(Darwin)
 private let sysAccept = unsafe accept
 #else
 private let sysAccept4 = unsafe CPlatformExecutors_accept4
 #endif
 
-/// The non-blocking stream socket syscalls that back the TCP operations.
-enum StreamSocketSyscall {
+/// The non-blocking socket syscalls that back the TCP and UDP operations.
+enum SocketSyscall {
+  /// The kind of socket to create.
+  enum SocketKind {
+    /// A TCP socket.
+    case stream
+
+    /// A UDP socket.
+    case datagram
+
+    fileprivate var type: CInt {
+      switch self {
+      case .stream: SocketSyscall.streamSocketType
+      case .datagram: SocketSyscall.datagramSocketType
+      }
+    }
+
+    fileprivate var protocolNumber: CInt {
+      switch self {
+      case .stream: CInt(IPPROTO_TCP)
+      case .datagram: CInt(IPPROTO_UDP)
+      }
+    }
+  }
+
   #if canImport(Glibc) && !os(Android)
   // Glibc imports the socket type and its flags as a C enum,
   // every other platform imports them as plain integers.
-  private static var streamSocketType: CInt { CInt(SOCK_STREAM.rawValue) }
+  fileprivate static var streamSocketType: CInt { CInt(SOCK_STREAM.rawValue) }
+  fileprivate static var datagramSocketType: CInt { CInt(SOCK_DGRAM.rawValue) }
   private static var nonBlockingFlag: CInt { CInt(SOCK_NONBLOCK.rawValue) }
   private static var closeOnExecFlag: CInt { CInt(SOCK_CLOEXEC.rawValue) }
   #elseif canImport(Darwin)
-  private static var streamSocketType: CInt { CInt(SOCK_STREAM) }
+  fileprivate static var streamSocketType: CInt { CInt(SOCK_STREAM) }
+  fileprivate static var datagramSocketType: CInt { CInt(SOCK_DGRAM) }
   #else
-  private static var streamSocketType: CInt { CInt(SOCK_STREAM) }
+  fileprivate static var streamSocketType: CInt { CInt(SOCK_STREAM) }
+  fileprivate static var datagramSocketType: CInt { CInt(SOCK_DGRAM) }
   private static var nonBlockingFlag: CInt { CInt(SOCK_NONBLOCK) }
   private static var closeOnExecFlag: CInt { CInt(SOCK_CLOEXEC) }
   #endif
 
-  /// Creates a new non-blocking TCP socket for the given address family.
+  /// Creates a new non-blocking socket for the given address family.
   ///
-  /// - Parameter family: The address family of the socket.
+  /// - Parameters:
+  ///   - family: The address family of the socket.
+  ///   - kind: The kind of socket to create.
   /// - Returns: The file descriptor of the new socket.
-  static func makeSocket(family: CInt) throws(IOError) -> CInt {
+  static func makeSocket(family: CInt, kind: SocketKind = .stream) throws(IOError) -> CInt {
     #if canImport(Darwin)
     let fileDescriptor = try retryingIOSyscall(blocking: false) {
-      socket(family, Self.streamSocketType, CInt(IPPROTO_TCP))
+      socket(family, kind.type, kind.protocolNumber)
     }.result
 
     do {
@@ -80,8 +110,8 @@ enum StreamSocketSyscall {
     return try retryingIOSyscall(blocking: false) {
       socket(
         family,
-        Self.streamSocketType | Self.nonBlockingFlag | Self.closeOnExecFlag,
-        CInt(IPPROTO_TCP)
+        kind.type | Self.nonBlockingFlag | Self.closeOnExecFlag,
+        kind.protocolNumber
       )
     }.result
     #endif
@@ -386,6 +416,46 @@ enum StreamSocketSyscall {
     }
   }
   #endif
+
+  // MARK: - Datagram sockets
+
+  /// Sends the datagram described by the given message.
+  ///
+  /// - Parameters:
+  ///   - fileDescriptor: The file descriptor of the socket.
+  ///   - message: The message to send. Its name holds the address to send to.
+  /// - Returns: The number of bytes sent, or `nil` if sending would have blocked.
+  static func sendMessage(
+    _ fileDescriptor: CInt,
+    _ message: UnsafePointer<msghdr>
+  ) throws(IOError) -> Int? {
+    let result = try retryingIOSyscall(blocking: true) {
+      unsafe sysSendMessage(fileDescriptor, message, 0)
+    }
+    guard case .processed(let count) = result else {
+      return nil
+    }
+    return count
+  }
+
+  /// Receives a datagram into the given message.
+  ///
+  /// - Parameters:
+  ///   - fileDescriptor: The file descriptor of the socket.
+  ///   - message: The message to receive into. The address of the sender is written into its name.
+  /// - Returns: The number of bytes received, or `nil` if receiving would have blocked.
+  static func receiveMessage(
+    _ fileDescriptor: CInt,
+    _ message: UnsafeMutablePointer<msghdr>
+  ) throws(IOError) -> Int? {
+    let result = try retryingIOSyscall(blocking: true) {
+      unsafe sysReceiveMessage(fileDescriptor, message, 0)
+    }
+    guard case .processed(let count) = result else {
+      return nil
+    }
+    return count
+  }
 }
 #endif
 #endif
