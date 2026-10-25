@@ -101,6 +101,41 @@ public struct TCPConnection: ~Copyable, Sendable {
     try await scheduler.read(connection: Self.connection(connection, of: scheduler), into: &buffer)
   }
 
+  /// Reads once from the socket into a buffer that the platform provides.
+  ///
+  /// - Returns: The buffer with the bytes that were read, which the caller has to return. It holds no bytes if the
+  ///   peer closed its side of the connection.
+  public mutating func read() async throws(IOError) -> LeasedBuffer {
+    try await Self.read(connection: self.connection, on: self.scheduler)
+  }
+
+  private static func read<Scheduler: TCPSocketOperationScheduler>(
+    connection: (any Sendable)?,
+    on scheduler: Scheduler
+  ) async throws(IOError) -> LeasedBuffer {
+    try await scheduler.read(connection: Self.connection(connection, of: scheduler))
+  }
+
+  /// Reads once from the socket into a buffer that the platform provides, and hands the bytes that were read to
+  /// the given closure.
+  ///
+  /// - Parameter body: The closure to invoke with the bytes that were read. Its span is empty if the peer closed
+  ///   its side of the connection.
+  /// - Returns: Whatever is returned by `body`.
+  public mutating func read<Return: ~Copyable>(
+    _ body: (inout OutputRawSpan) -> Return
+  ) async throws(IOError) -> Return {
+    try await Self.read(connection: self.connection, on: self.scheduler, body)
+  }
+
+  private static func read<Scheduler: TCPSocketOperationScheduler, Return: ~Copyable>(
+    connection: (any Sendable)?,
+    on scheduler: Scheduler,
+    _ body: (inout OutputRawSpan) -> Return
+  ) async throws(IOError) -> Return {
+    try await scheduler.read(connection: Self.connection(connection, of: scheduler), body: body)
+  }
+
   /// Writes all bytes of the given buffer to the socket.
   ///
   /// This can take several writes if the platform accepts only part of the bytes at a time.
@@ -108,6 +143,24 @@ public struct TCPConnection: ~Copyable, Sendable {
   /// - Parameter buffer: The buffer to write.
   public mutating func write(from buffer: RawSpan) async throws(IOError) {
     try await Self.write(from: buffer, connection: self.connection, on: self.scheduler)
+  }
+
+  /// Writes the bytes that the given closure produces to the socket, using a buffer that the platform provides.
+  ///
+  /// - Parameter body: The closure to invoke with the buffer to fill.
+  /// - Returns: Whatever is returned by `body`.
+  public mutating func write<Return: ~Copyable>(
+    _ body: (inout OutputRawSpan) -> Return
+  ) async throws(IOError) -> Return {
+    try await Self.write(connection: self.connection, on: self.scheduler, body)
+  }
+
+  private static func write<Scheduler: TCPSocketOperationScheduler, Return: ~Copyable>(
+    connection: (any Sendable)?,
+    on scheduler: Scheduler,
+    _ body: (inout OutputRawSpan) -> Return
+  ) async throws(IOError) -> Return {
+    try await scheduler.write(connection: Self.connection(connection, of: scheduler), body: body)
   }
 
   private static func write<Scheduler: TCPSocketOperationScheduler>(
@@ -207,6 +260,25 @@ extension TCPConnection {
     public mutating func read(into buffer: inout OutputRawSpan) async throws(IOError) -> Int {
       try await TCPConnection.read(into: &buffer, connection: self.connection, on: self.scheduler)
     }
+
+    /// Reads once from the socket into a buffer that the platform provides.
+    ///
+    /// - Returns: The buffer with the bytes that were read, which the caller has to return.
+    public mutating func read() async throws(IOError) -> LeasedBuffer {
+      try await TCPConnection.read(connection: self.connection, on: self.scheduler)
+    }
+
+    /// Reads once from the socket into a buffer that the platform provides, and hands the bytes that were read
+    /// to the given closure.
+    ///
+    /// - Parameter body: The closure to invoke with the bytes that were read. Its span is empty if the peer
+    ///   closed its side of the connection.
+    /// - Returns: Whatever is returned by `body`.
+    public mutating func read<Return: ~Copyable>(
+      _ body: (inout OutputRawSpan) -> Return
+    ) async throws(IOError) -> Return {
+      try await TCPConnection.read(connection: self.connection, on: self.scheduler, body)
+    }
   }
 
   /// The write direction of a connection, lent out by ``TCPConnection/withSplit(_:)``.
@@ -230,6 +302,17 @@ extension TCPConnection {
     /// - Parameter buffer: The buffer to write.
     public mutating func write(from buffer: RawSpan) async throws(IOError) {
       try await TCPConnection.write(from: buffer, connection: self.connection, on: self.scheduler)
+    }
+
+    /// Writes the bytes that the given closure produces to the socket, using a buffer that the platform
+    /// provides.
+    ///
+    /// - Parameter body: The closure to invoke with the buffer to fill.
+    /// - Returns: Whatever is returned by `body`.
+    public mutating func write<Return: ~Copyable>(
+      _ body: (inout OutputRawSpan) -> Return
+    ) async throws(IOError) -> Return {
+      try await TCPConnection.write(connection: self.connection, on: self.scheduler, body)
     }
 
     /// Shuts down the write direction of the socket.

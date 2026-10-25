@@ -79,6 +79,38 @@ public struct UDPConnection: ~Copyable, Sendable {
     try await UDPCore.write(from: buffer, socket: self.core.socket, on: self.core.scheduler)
   }
 
+  /// Reads one datagram from the peer into a buffer that the platform provides.
+  ///
+  /// A datagram that is larger than the buffer is truncated, and its remaining bytes are discarded.
+  ///
+  /// - Returns: The buffer with the bytes of the datagram, which the caller has to return.
+  public mutating func read() async throws(IOError) -> LeasedBuffer {
+    try await UDPCore.read(socket: self.core.socket, on: self.core.scheduler)
+  }
+
+  /// Reads one datagram from the peer into a buffer that the platform provides, and hands it to the given
+  /// closure.
+  ///
+  /// A datagram that is larger than the buffer is truncated, and its remaining bytes are discarded.
+  ///
+  /// - Parameter body: The closure to invoke with the bytes of the datagram.
+  /// - Returns: Whatever is returned by `body`.
+  public mutating func read<Return: ~Copyable>(
+    _ body: (inout OutputRawSpan) -> Return
+  ) async throws(IOError) -> Return {
+    try await UDPCore.read(socket: self.core.socket, on: self.core.scheduler, body)
+  }
+
+  /// Sends the datagram that the given closure produces to the peer, using a buffer that the platform provides.
+  ///
+  /// - Parameter body: The closure to invoke with the buffer to fill.
+  /// - Returns: Whatever is returned by `body`.
+  public mutating func write<Return: ~Copyable>(
+    _ body: (inout OutputRawSpan) -> Return
+  ) async throws(IOError) -> Return {
+    try await UDPCore.write(socket: self.core.socket, on: self.core.scheduler, body)
+  }
+
   /// Closes the connection.
   public consuming func close() async throws(IOError) {
     try await self.core.close()
@@ -111,6 +143,17 @@ extension UDPConnection {
     public mutating func read(into buffer: inout OutputRawSpan) async throws(IOError) -> Int {
       try await UDPCore.read(into: &buffer, socket: self.socket, on: self.scheduler)
     }
+
+    /// Reads one datagram from the peer into a buffer that the platform provides, and hands it to the given
+    /// closure.
+    ///
+    /// - Parameter body: The closure to invoke with the bytes of the datagram.
+    /// - Returns: Whatever is returned by `body`.
+    public mutating func read<Return: ~Copyable>(
+      _ body: (inout OutputRawSpan) -> Return
+    ) async throws(IOError) -> Return {
+      try await UDPCore.read(socket: self.socket, on: self.scheduler, body)
+    }
   }
 
   /// The write direction of a connection, lent out by ``UDPConnection/withSplit(_:)``.
@@ -132,6 +175,17 @@ extension UDPConnection {
     /// - Parameter buffer: The bytes of the datagram.
     public mutating func write(from buffer: RawSpan) async throws(IOError) {
       try await UDPCore.write(from: buffer, socket: self.socket, on: self.scheduler)
+    }
+
+    /// Sends the datagram that the given closure produces to the peer, using a buffer that the platform
+    /// provides.
+    ///
+    /// - Parameter body: The closure to invoke with the buffer to fill.
+    /// - Returns: Whatever is returned by `body`.
+    public mutating func write<Return: ~Copyable>(
+      _ body: (inout OutputRawSpan) -> Return
+    ) async throws(IOError) -> Return {
+      try await UDPCore.write(socket: self.socket, on: self.scheduler, body)
     }
   }
 

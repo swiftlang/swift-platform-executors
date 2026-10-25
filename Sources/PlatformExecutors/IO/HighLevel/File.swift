@@ -62,6 +62,30 @@ public struct File: ~Copyable, Sendable {
     try await self.core.read(into: &buffer, at: offset)
   }
 
+  /// Reads once from the given offset of the file into a buffer that the platform provides.
+  ///
+  /// - Parameter offset: The offset in the file to read from.
+  /// - Returns: The buffer with the bytes that were read, which the caller has to return. It holds no bytes if the
+  ///   offset is at or behind the end of the file.
+  public borrowing func read(at offset: Int64) async throws(IOError) -> LeasedBuffer {
+    try await self.core.read(at: offset)
+  }
+
+  /// Reads once from the given offset of the file into a buffer that the platform provides, and hands the bytes
+  /// that were read to the given closure.
+  ///
+  /// - Parameters:
+  ///   - offset: The offset in the file to read from.
+  ///   - body: The closure to invoke with the bytes that were read. Its span is empty if the offset is at or
+  ///     behind the end of the file.
+  /// - Returns: Whatever is returned by `body`.
+  public borrowing func read<Return: ~Copyable>(
+    at offset: Int64,
+    _ body: (inout OutputRawSpan) -> Return
+  ) async throws(IOError) -> Return {
+    try await self.core.read(at: offset, body)
+  }
+
   /// Writes all bytes of the given buffer to the given offset of the file.
   ///
   /// - Parameters:
@@ -69,6 +93,20 @@ public struct File: ~Copyable, Sendable {
   ///   - offset: The offset in the file to write to.
   public borrowing func write(from buffer: RawSpan, at offset: Int64) async throws(IOError) {
     try await self.core.write(from: buffer, at: offset)
+  }
+
+  /// Writes the bytes that the given closure produces to the given offset of the file, using a buffer that the
+  /// platform provides.
+  ///
+  /// - Parameters:
+  ///   - offset: The offset in the file to write to.
+  ///   - body: The closure to invoke with the buffer to fill.
+  /// - Returns: Whatever is returned by `body`.
+  public borrowing func write<Return: ~Copyable>(
+    at offset: Int64,
+    _ body: (inout OutputRawSpan) -> Return
+  ) async throws(IOError) -> Return {
+    try await self.core.write(at: offset, body)
   }
 
   /// Closes the file.
@@ -145,6 +183,30 @@ extension File {
     @discardableResult
     public borrowing func read(into buffer: inout OutputRawSpan, at offset: Int64) async throws(IOError) -> Int {
       try await self.core.read(into: &buffer, at: offset)
+    }
+
+    /// Reads once from the given offset of the file into a buffer that the platform provides.
+    ///
+    /// - Parameter offset: The offset in the file to read from.
+    /// - Returns: The buffer with the bytes that were read, which the caller has to return. It holds no bytes if the
+    ///   offset is at or behind the end of the file.
+    public borrowing func read(at offset: Int64) async throws(IOError) -> LeasedBuffer {
+      try await self.core.read(at: offset)
+    }
+
+    /// Reads once from the given offset of the file into a buffer that the platform provides, and hands the bytes
+    /// that were read to the given closure.
+    ///
+    /// - Parameters:
+    ///   - offset: The offset in the file to read from.
+    ///   - body: The closure to invoke with the bytes that were read. Its span is empty if the offset is at or
+    ///     behind the end of the file.
+    /// - Returns: Whatever is returned by `body`.
+    public borrowing func read<Return: ~Copyable>(
+      at offset: Int64,
+      _ body: (inout OutputRawSpan) -> Return
+    ) async throws(IOError) -> Return {
+      try await self.core.read(at: offset, body)
     }
 
     /// Closes the file.
@@ -307,6 +369,20 @@ extension File {
       try await self.core.write(from: buffer, at: offset)
     }
 
+    /// Writes the bytes that the given closure produces to the given offset of the file, using a buffer that the
+    /// platform provides.
+    ///
+    /// - Parameters:
+    ///   - offset: The offset in the file to write to.
+    ///   - body: The closure to invoke with the buffer to fill.
+    /// - Returns: Whatever is returned by `body`.
+    public borrowing func write<Return: ~Copyable>(
+      at offset: Int64,
+      _ body: (inout OutputRawSpan) -> Return
+    ) async throws(IOError) -> Return {
+      try await self.core.write(at: offset, body)
+    }
+
     /// Closes the file.
     public consuming func close() async throws(IOError) {
       try await self.core.close()
@@ -364,6 +440,50 @@ struct FileCore: ~Copyable, Sendable {
     on scheduler: Scheduler
   ) async throws(IOError) -> Int {
     try await scheduler.read(file: Self.file(file, of: scheduler), into: &buffer, at: offset)
+  }
+
+  borrowing func read(at offset: Int64) async throws(IOError) -> LeasedBuffer {
+    try await Self.read(at: offset, file: self.file, on: self.scheduler)
+  }
+
+  private static func read<Scheduler: FileOperationScheduler>(
+    at offset: Int64,
+    file: (any Sendable)?,
+    on scheduler: Scheduler
+  ) async throws(IOError) -> LeasedBuffer {
+    try await scheduler.read(file: Self.file(file, of: scheduler), at: offset)
+  }
+
+  borrowing func read<Return: ~Copyable>(
+    at offset: Int64,
+    _ body: (inout OutputRawSpan) -> Return
+  ) async throws(IOError) -> Return {
+    try await Self.read(at: offset, file: self.file, on: self.scheduler, body)
+  }
+
+  private static func read<Scheduler: FileOperationScheduler, Return: ~Copyable>(
+    at offset: Int64,
+    file: (any Sendable)?,
+    on scheduler: Scheduler,
+    _ body: (inout OutputRawSpan) -> Return
+  ) async throws(IOError) -> Return {
+    try await scheduler.read(file: Self.file(file, of: scheduler), at: offset, body: body)
+  }
+
+  borrowing func write<Return: ~Copyable>(
+    at offset: Int64,
+    _ body: (inout OutputRawSpan) -> Return
+  ) async throws(IOError) -> Return {
+    try await Self.write(at: offset, file: self.file, on: self.scheduler, body)
+  }
+
+  private static func write<Scheduler: FileOperationScheduler, Return: ~Copyable>(
+    at offset: Int64,
+    file: (any Sendable)?,
+    on scheduler: Scheduler,
+    _ body: (inout OutputRawSpan) -> Return
+  ) async throws(IOError) -> Return {
+    try await scheduler.write(file: Self.file(file, of: scheduler), at: offset, body: body)
   }
 
   borrowing func write(from buffer: RawSpan, at offset: Int64) async throws(IOError) {
