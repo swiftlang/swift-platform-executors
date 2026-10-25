@@ -244,6 +244,66 @@ struct UDPSocketTests {
     try await client.close()
     try await server.close()
   }
+
+  @Test(
+    .disabled("Leasing buffers is not implemented in the executors yet"),
+    arguments: PThreadIOBackend.tested
+  )
+  @available(anyAppleOS 27.0, *)
+  func exchangeWithBuffersFromTheExecutor(ioBackend: PThreadIOBackend) async throws {
+    try await PThreadExecutor.withExecutor(name: "UDPSocketTest", ioBackend: ioBackend) { executor in
+      try await withOperationScheduler(executor) {
+        var server = try await UDPSocket.bind(to: Self.loopback)
+        var client = try await UDPSocket.bind(to: Self.loopback)
+        let serverAddress = try server.localAddress
+        let clientAddress = try client.localAddress
+
+        try await client.send(to: serverAddress) { span in span.append(bytes: Array("ping".utf8)) }
+        let (request, requestSender) = try await server.receive { span, sender in
+          (span.bytesArray(), sender)
+        }
+        #expect(request == Array("ping".utf8))
+        #expect(requestSender == clientAddress)
+
+        try await server.send(to: requestSender) { span in span.append(bytes: Array("pong".utf8)) }
+        let (reply, replySender) = try await client.receive { span, sender in
+          (span.bytesArray(), sender)
+        }
+        #expect(reply == Array("pong".utf8))
+        #expect(replySender == serverAddress)
+
+        try await client.close()
+        try await server.close()
+      }
+    }
+  }
+
+  @Test(
+    .disabled("Leasing buffers is not implemented in the executors yet"),
+    arguments: PThreadIOBackend.tested
+  )
+  @available(anyAppleOS 27.0, *)
+  func connectedSocketReadsAndWritesWithBuffersFromTheExecutor(ioBackend: PThreadIOBackend) async throws {
+    try await PThreadExecutor.withExecutor(name: "UDPSocketTest", ioBackend: ioBackend) { executor in
+      try await withOperationScheduler(executor) {
+        var server = try await UDPSocket.bind(to: Self.loopback)
+        var client = try await UDPConnection.connect(to: server.localAddress)
+
+        try await client.write { span in span.append(bytes: Array("ping".utf8)) }
+        let (request, sender) = try await server.receive { span, sender in (span.bytesArray(), sender) }
+        #expect(request == Array("ping".utf8))
+
+        try await server.send(to: sender) { span in span.append(bytes: Array("pong".utf8)) }
+        #expect(try await client.read { span in span.bytesArray() } == Array("pong".utf8))
+
+        // Nothing is sent for an empty datagram.
+        try await client.write { _ in }
+
+        try await client.close()
+        try await server.close()
+      }
+    }
+  }
 }
 
 @available(anyAppleOS 27.0, *)

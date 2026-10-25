@@ -13,25 +13,13 @@
 #if ExperimentalIO
 #if os(Linux) || os(FreeBSD) || canImport(Darwin)
 
-import BasicContainers
 import Synchronization
 import Testing
 @_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import _Concurrency
 @_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import PlatformExecutors
 
-#if canImport(Glibc)
-import Glibc
-#elseif canImport(Darwin)
-import Darwin
-#endif
-
-/// Tests the operations that read into, and write from, buffers that the executor provides.
-///
-/// With `io_uring` the kernel picks the buffers that reads fill, so these tests are about handing the buffers
-/// out and taking them back: a lost buffer drains the ring, which shows as reads that fall back to transient
-/// allocations.
 @Suite
-struct ProvidedBufferTests {
+struct LeasedBufferTests {
   @Test
   @available(anyAppleOS 27.0, *)
   func aLeaseThatIsNotReturnedTraps() async {
