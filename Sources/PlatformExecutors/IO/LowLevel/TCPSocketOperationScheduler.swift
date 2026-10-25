@@ -73,6 +73,13 @@ public protocol TCPSocketOperationScheduler<TCPListener, TCPConnection>: Operati
   /// - Returns: The number of bytes written. This can be less than the number of bytes in the buffer.
   func write(connection: borrowing TCPConnection, from buffer: RawSpan) async throws(IOError) -> Int
 
+  /// Reads once from a socket into a buffer that the scheduler provides.
+  ///
+  /// - Parameter connection: The socket to read from.
+  /// - Returns: The buffer with the bytes that were read, which the caller has to return. It holds no bytes if the
+  ///   peer closed its side of the connection.
+  func read(connection: borrowing TCPConnection) async throws(IOError) -> LeasedBuffer
+
   /// Shuts down one or both directions of a socket.
   ///
   /// Shutting down the write direction sends a `FIN` to the peer, which
@@ -109,5 +116,52 @@ public protocol TCPSocketOperationScheduler<TCPListener, TCPConnection>: Operati
   /// - Parameter listener: The listening socket to return the address of.
   /// - Returns: The address that the listening socket is bound to.
   func localAddress(of listener: borrowing TCPListener) throws(IOError) -> SocketAddress
+}
+
+@available(anyAppleOS 27.0, *)
+extension TCPSocketOperationScheduler {
+  /// Reads once from a socket and hands the bytes that were read to the closure.
+  ///
+  /// - Parameters:
+  ///   - connection: The socket to read from.
+  ///   - body: The closure to invoke with the bytes that were read. Its span is empty if the peer closed its
+  ///     side of the connection.
+  /// - Returns: Whatever is returned by `body`.
+  // TODO: This closure should become throwing by adopting EitherError
+  public func read<Return: ~Copyable>(
+    connection: borrowing TCPConnection,
+    body: (inout OutputRawSpan) async -> Return
+  ) async throws(IOError) -> Return {
+    var buffer = try await self.read(connection: connection)
+    let result = await buffer.edit(body)
+    buffer.return()
+    return result
+  }
+
+  /// Writes the bytes that the closure appends to a socket.
+  ///
+  /// - Parameters:
+  ///   - connection: The socket to write to.
+  ///   - body: The closure to invoke with the empty span of a buffer to fill.
+  /// - Returns: Whatever is returned by `body`.
+  // TODO: This closure should become throwing by adopting EitherError
+  public func write<Return: ~Copyable>(
+    connection: borrowing TCPConnection,
+    body: (inout OutputRawSpan) async -> Return
+  ) async throws(IOError) -> Return {
+    var buffer = self.leaseBuffer()
+    let result = await buffer.edit(body)
+    do throws(IOError) {
+      var written = 0
+      while written < buffer.count {
+        written += try await self.write(connection: connection, from: buffer.bytes.extracting(droppingFirst: written))
+      }
+    } catch {
+      buffer.return()
+      throw error
+    }
+    buffer.return()
+    return result
+  }
 }
 #endif
