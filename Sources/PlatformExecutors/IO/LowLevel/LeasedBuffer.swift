@@ -118,6 +118,20 @@ public struct LeasedBuffer: ~Copyable, @unchecked Sendable {
     return result
   }
 
+  /// Arbitrarily edit the storage underlying this buffer by invoking a
+  /// user-supplied closure with a mutable `OutputSpan` view over it.
+  ///
+  /// - Parameter body: The closure to invoke with the span.
+  /// - Returns: Whatever is returned by `body`.
+  public mutating func edit<Return: ~Copyable>(
+    _ body: (inout OutputRawSpan) async -> Return
+  ) async -> Return {
+    var span = unsafe OutputRawSpan(buffer: self.memory, initializedCount: self.initializedCount)
+    let result = await body(&span)
+    self.initializedCount = span.byteCount
+    return result
+  }
+
   /// Gives the buffer back to where it came from.
   public consuming func `return`() {
     unsafe self.release(self.memory)

@@ -60,10 +60,71 @@ public protocol FileOperationScheduler<FileHandle>: OperationScheduler {
     at offset: Int64
   ) async throws(IOError) -> Int
 
+  /// Reads once from the given offset of a file into a buffer that the scheduler provides.
+  ///
+  /// - Parameters:
+  ///   - file: The file to read from.
+  ///   - offset: The offset in the file to read from.
+  /// - Returns: The buffer with the bytes that were read, which the caller has to return. It holds no bytes if the
+  ///   offset is at or behind the end of the file.
+  func read(file: borrowing FileHandle, at offset: Int64) async throws(IOError) -> LeasedBuffer
+
   /// Closes a file.
   ///
   /// - Parameter file: The file to close.
   func close(file: consuming FileHandle) async throws(IOError)
+}
+
+@available(anyAppleOS 27.0, *)
+extension FileOperationScheduler {
+  /// Reads once from the given offset of a file and hands the bytes that were read to the closure.
+  ///
+  /// - Parameters:
+  ///   - file: The file to read from.
+  ///   - offset: The offset in the file to read from.
+  ///   - body: The closure to invoke with the bytes that were read. Its span is empty if the offset is at or
+  ///     behind the end of the file.
+  /// - Returns: Whatever is returned by `body`.
+  // TODO: This closure should become throwing by adopting EitherError
+  public func read<Return: ~Copyable>(
+    file: borrowing FileHandle,
+    at offset: Int64,
+    body: (inout OutputRawSpan) async -> Return
+  ) async throws(IOError) -> Return {
+    var buffer = try await self.read(file: file, at: offset)
+    let result = await buffer.edit(body)
+    buffer.return()
+    return result
+  }
+
+  /// Writes the bytes that the closure appends to the given offset of a file.
+  ///
+  /// - Parameters:
+  ///   - file: The file to write to.
+  ///   - offset: The offset in the file to write to.
+  ///   - body: The closure to invoke with the empty span of a buffer to fill.
+  /// - Returns: Whatever is returned by `body`.
+  // TODO: This closure should become throwing by adopting EitherError
+  public func write<Return: ~Copyable>(
+    file: borrowing FileHandle,
+    at offset: Int64,
+    body: (inout OutputRawSpan) async -> Return
+  ) async throws(IOError) -> Return {
+    var buffer = self.leaseBuffer()
+    let result = await buffer.edit(body)
+    do throws(IOError) {
+      var written = 0
+      while written < buffer.count {
+        let bytes = buffer.bytes.extracting(droppingFirst: written)
+        written += try await self.write(file: file, from: bytes, at: offset + Int64(written))
+      }
+    } catch {
+      buffer.return()
+      throw error
+    }
+    buffer.return()
+    return result
+  }
 }
 
 /// How a scheduler opens a file.

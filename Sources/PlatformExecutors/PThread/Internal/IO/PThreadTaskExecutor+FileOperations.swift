@@ -87,6 +87,11 @@ extension PThreadTaskExecutor: FileOperationScheduler {
     )
   }
 
+  // TODO: Implement the operations that lease buffers.
+  public func read(file: borrowing FileHandle, at offset: Int64) async throws(IOError) -> LeasedBuffer {
+    fatalError("Leasing buffers is not implemented yet")
+  }
+
   public func close(file: consuming FileHandle) async throws(IOError) {
     if self.performsFileOperations {
       return try await self.current().closeFile(file)
