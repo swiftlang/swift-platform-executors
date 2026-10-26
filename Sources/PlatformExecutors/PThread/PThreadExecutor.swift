@@ -1021,26 +1021,26 @@ extension PThreadExecutor {
     /// Creates a resumer whose resumed tasks run inline if they run on the given task executor.
     init(taskExecutor: UnownedTaskExecutor) {
       self.resumeConnection = { continuation, result in
-        unsafe continuation.resume(with: result, on: taskExecutor)
+        unsafe continuation.resumeSynchronously(with: result, on: taskExecutor)
       }
       self.resumeByteCount = { continuation, result in
-        unsafe continuation.resume(with: result, on: taskExecutor)
+        unsafe continuation.resumeSynchronously(with: result, on: taskExecutor)
       }
       self.resumeVoid = { continuation, result in
-        unsafe continuation.resume(with: result, on: taskExecutor)
+        unsafe continuation.resumeSynchronously(with: result, on: taskExecutor)
       }
     }
 
     /// Creates a resumer whose resumed tasks run inline if they are isolated to the given serial executor.
     init(serialExecutor: UnownedSerialExecutor) {
       self.resumeConnection = { continuation, result in
-        unsafe continuation.resume(with: result, isolatedTo: serialExecutor)
+        unsafe continuation.resumeSynchronously(with: result, isolatedTo: serialExecutor)
       }
       self.resumeByteCount = { continuation, result in
-        unsafe continuation.resume(with: result, isolatedTo: serialExecutor)
+        unsafe continuation.resumeSynchronously(with: result, isolatedTo: serialExecutor)
       }
       self.resumeVoid = { continuation, result in
-        unsafe continuation.resume(with: result, isolatedTo: serialExecutor)
+        unsafe continuation.resumeSynchronously(with: result, isolatedTo: serialExecutor)
       }
     }
   }
@@ -1077,15 +1077,20 @@ extension PThreadExecutor {
     try await withContinuation(
       of: Success.self,
       throwing: IOError.self
-    ) { (continuation, awaiter) async throws(IOError) -> Success in
+    ) { (continuation, waiter) async throws(IOError) -> Success in
+      let priority = Task.currentPriority
       guard let id = unsafe self.submit(operation, resuming: resumption(continuation)) else {
         // The operation completed synchronously, so there is nothing
         // to cancel and no reason to install the handlers.
-        return try await awaiter.wait()
+        return try await waiter.wait()
       }
-      return try await awaiter.wait(
-        onCancel: { self.cancel(id) },
-        onEscalate: { newPriority in self.escalatePriority(of: id, to: newPriority) }
+      return try await waiter.wait(
+        onCancel: { _ in self.cancel(id) },
+        onPriorityEscalated: { _, newPriority in
+          // The handler also runs once when the wait starts, with the priority that the task has then.
+          guard newPriority > priority else { return }
+          self.escalatePriority(of: id, to: newPriority)
+        }
       )
     }
   }
