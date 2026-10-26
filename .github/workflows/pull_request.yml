@@ -18,7 +18,7 @@ jobs:
       linux_swift_versions: "[\"6.4\"]"
       linux_os_versions: "[\"resolute\"]"
       linux_host_archs: "[\"aarch64\"]"
-      linux_pre_build_command: "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y curl && curl -fsSL -o /tmp/toolchain.tar.gz https://download.swift.org/tmp/pull-request/91981/9/ubuntu2604/PR-ubuntu2604.tar.gz && tar -xzf /tmp/toolchain.tar.gz -C / && rm /tmp/toolchain.tar.gz"
+      linux_pre_build_command: "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y curl && curl -fsSL -o /tmp/toolchain.tar.gz https://download.swift.org/tmp/pull-request/91981/15/ubuntu2604/PR-ubuntu2604.tar.gz && tar -xzf /tmp/toolchain.tar.gz -C / && rm /tmp/toolchain.tar.gz"
       windows_swift_versions: "[\"nightly\"]"
       linux_build_command: swift test --traits ExperimentalIO
 
@@ -44,6 +44,6 @@ jobs:
           persist-credentials: false
       - name: Pre-build
         # The same toolchain of https://github.com/swiftlang/swift/pull/91981 as the shared Linux job.
-        run: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y curl && curl -fsSL -o /tmp/toolchain.tar.gz https://download.swift.org/tmp/pull-request/91981/9/ubuntu2604/PR-ubuntu2604.tar.gz && tar -xzf /tmp/toolchain.tar.gz -C / && rm /tmp/toolchain.tar.gz
+        run: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y curl && curl -fsSL -o /tmp/toolchain.tar.gz https://download.swift.org/tmp/pull-request/91981/15/ubuntu2604/PR-ubuntu2604.tar.gz && tar -xzf /tmp/toolchain.tar.gz -C / && rm /tmp/toolchain.tar.gz
       - name: Build / Test
         run: swift test --traits ExperimentalIOUring
