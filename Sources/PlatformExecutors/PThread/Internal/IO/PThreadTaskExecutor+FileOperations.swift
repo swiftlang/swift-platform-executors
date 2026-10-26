@@ -101,15 +101,20 @@ extension PThreadTaskExecutor: FileOperationScheduler {
   private func performBlocking(_ operation: IOOperation) async throws(IOError) -> Int {
     let queue = self.blockingQueue()
     return try await withContinuation(of: Int.self, throwing: IOError.self) {
-      (continuation, awaiter) async throws(IOError) -> Int in
+      (continuation, waiter) async throws(IOError) -> Int in
+      let priority = Task.currentPriority
       let id = unsafe queue.submit(
         operation: operation,
-        priority: Task.currentPriority,
+        priority: priority,
         continuation: continuation
       )
-      return try await awaiter.wait(
-        onCancel: { queue.cancel(id) },
-        onEscalate: { newPriority in queue.escalate(id, to: newPriority) }
+      return try await waiter.wait(
+        onCancel: { _ in queue.cancel(id) },
+        onPriorityEscalated: { _, newPriority in
+          // The handler also runs once when the wait starts, with the priority that the task has then.
+          guard newPriority > priority else { return }
+          queue.escalate(id, to: newPriority)
+        }
       )
     }
   }

@@ -32,7 +32,7 @@ let package = Package(
     // The I/O interfaces require a toolchain that contains the split continuation of
     // https://github.com/swiftlang/swift/pull/91981, which wires through cancellation and priority
     // escalation of the operations. The toolchains can be downloaded from:
-    // - Linux: https://download.swift.org/tmp/pull-request/91981/9/ubuntu2604/PR-ubuntu2604.tar.gz
+    // - Linux: https://download.swift.org/tmp/pull-request/91981/15/ubuntu2604/PR-ubuntu2604.tar.gz
     // - macOS: https://download.swift.org/tmp/pull-request/91981/2475/xcode/swift-PR-91981-2475-osx.tar.gz
     // On macOS, processes have to run against the Concurrency runtime of the toolchain, for example with
     // `DYLD_LIBRARY_PATH=<toolchain>/usr/lib/swift/macosx`.
