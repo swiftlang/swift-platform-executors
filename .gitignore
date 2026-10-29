@@ -1,6 +1,6 @@
 .DS_Store
 Package.resolved
-/.build
+.build*/
 /Packages
 xcuserdata/
 DerivedData/

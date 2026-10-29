@@ -58,6 +58,15 @@ extension PThreadTaskExecutor: UDPSocketOperationScheduler {
     try await self.current().write(socket: socket, from: buffer)
   }
 
+  // TODO: Implement the operations that lease buffers.
+  public func receive(socket: borrowing UDPSocket) async throws(IOError) -> ReceivedDatagram {
+    fatalError("Leasing buffers is not implemented yet")
+  }
+
+  public func read(socket: borrowing UDPSocket) async throws(IOError) -> LeasedBuffer {
+    fatalError("Leasing buffers is not implemented yet")
+  }
+
   public func close(socket: consuming UDPSocket) async throws(IOError) {
     try await self.current().close(socket: socket)
   }

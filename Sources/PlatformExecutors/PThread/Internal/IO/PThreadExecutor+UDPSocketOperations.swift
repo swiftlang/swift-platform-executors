@@ -199,6 +199,15 @@ extension PThreadExecutor: UDPSocketOperationScheduler {
     }
   }
 
+  // TODO: Implement the operations that lease buffers.
+  package func receive(socket: borrowing UDPSocket) async throws(IOError) -> ReceivedDatagram {
+    fatalError("Leasing buffers is not implemented yet")
+  }
+
+  package func read(socket: borrowing UDPSocket) async throws(IOError) -> LeasedBuffer {
+    fatalError("Leasing buffers is not implemented yet")
+  }
+
   package func close(socket: consuming UDPSocket) async throws(IOError) {
     let fileDescriptor = socket.takeFileDescriptor()
     try await unsafe self.perform(.close(fileDescriptor: fileDescriptor)) { continuation in
