@@ -312,6 +312,23 @@ struct FileTests {
       }
     }
   }
+
+  @Test(
+    .disabled("Leasing buffers is not implemented in the executors yet"),
+    arguments: PThreadIOBackend.tested
+  )
+  @available(anyAppleOS 27.0, *)
+  func readAndWriteWithBuffersFromTheExecutor(ioBackend: PThreadIOBackend) async throws {
+    try await Self.withTemporaryFile(ioBackend: ioBackend) { path in
+      let writable = try await File.Writable.open(path: path, options: .newFile(replaceExisting: true))
+      try await writable.write(at: 0) { span in span.append(bytes: Array("readable and writable".utf8)) }
+      try await writable.close()
+
+      let readable = try await File.Readable.open(path: path)
+      #expect(try await readable.read(at: 0) { span in span.bytesArray() } == Array("readable and writable".utf8))
+      try await readable.close()
+    }
+  }
 }
 
 #endif

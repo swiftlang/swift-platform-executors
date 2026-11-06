@@ -76,6 +76,42 @@ public struct UDPSocket: ~Copyable, Sendable {
     try await UDPCore.send(from: buffer, to: address, socket: self.core.socket, on: self.core.scheduler)
   }
 
+  /// Receives one datagram into a buffer that the platform provides.
+  ///
+  /// A datagram that is larger than the buffer is truncated, and its remaining bytes are discarded.
+  ///
+  /// - Returns: The datagram, whose buffer the caller has to return.
+  public mutating func receive() async throws(IOError) -> ReceivedDatagram {
+    try await UDPCore.receive(socket: self.core.socket, on: self.core.scheduler)
+  }
+
+  /// Receives one datagram into a buffer that the platform provides, and hands it to the given closure.
+  ///
+  /// A datagram that is larger than the buffer is truncated, and its remaining bytes are discarded.
+  ///
+  /// - Parameter body: The closure to invoke with the bytes of the datagram and the address of the sender.
+  /// - Returns: Whatever is returned by `body`.
+  public mutating func receive<Return: ~Copyable>(
+    _ body: (inout OutputRawSpan, SocketAddress) -> Return
+  ) async throws(IOError) -> Return {
+    try await UDPCore.receive(socket: self.core.socket, on: self.core.scheduler, body)
+  }
+
+  /// Sends the datagram that the given closure produces to the given address, using a buffer that the platform
+  /// provides.
+  ///
+  /// - Parameters:
+  ///   - address: The address to send the datagram to.
+  ///   - body: The closure to invoke with the buffer to fill.
+  /// - Returns: Whatever is returned by `body`.
+  @discardableResult
+  public mutating func send<Return: ~Copyable>(
+    to address: SocketAddress,
+    _ body: (inout OutputRawSpan) -> Return
+  ) async throws(IOError) -> Return {
+    try await UDPCore.send(to: address, socket: self.core.socket, on: self.core.scheduler, body)
+  }
+
   /// Connects the socket to the given address, so that it only exchanges datagrams with that peer.
   ///
   /// The socket keeps its local address. Connecting does not send anything, so it succeeds even if nobody
@@ -126,6 +162,16 @@ extension UDPSocket {
     ) async throws(IOError) -> (count: Int, sender: SocketAddress) {
       try await UDPCore.receive(into: &buffer, socket: self.socket, on: self.scheduler)
     }
+
+    /// Receives one datagram into a buffer that the platform provides, and hands it to the given closure.
+    ///
+    /// - Parameter body: The closure to invoke with the bytes of the datagram and the address of the sender.
+    /// - Returns: Whatever is returned by `body`.
+    public mutating func receive<Return: ~Copyable>(
+      _ body: (inout OutputRawSpan, SocketAddress) -> Return
+    ) async throws(IOError) -> Return {
+      try await UDPCore.receive(socket: self.socket, on: self.scheduler, body)
+    }
   }
 
   /// The sending direction of a socket, lent out by ``UDPSocket/withSplit(_:)``.
@@ -149,6 +195,21 @@ extension UDPSocket {
     ///   - address: The address to send the datagram to.
     public mutating func send(from buffer: RawSpan, to address: SocketAddress) async throws(IOError) {
       try await UDPCore.send(from: buffer, to: address, socket: self.socket, on: self.scheduler)
+    }
+
+    /// Sends the datagram that the given closure produces to the given address, using a buffer that the
+    /// platform provides.
+    ///
+    /// - Parameters:
+    ///   - address: The address to send the datagram to.
+    ///   - body: The closure to invoke with the buffer to fill.
+    /// - Returns: Whatever is returned by `body`.
+    @discardableResult
+    public mutating func send<Return: ~Copyable>(
+      to address: SocketAddress,
+      _ body: (inout OutputRawSpan) -> Return
+    ) async throws(IOError) -> Return {
+      try await UDPCore.send(to: address, socket: self.socket, on: self.scheduler, body)
     }
   }
 

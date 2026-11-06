@@ -483,6 +483,164 @@ struct TCPSocketTests {
 
     try await listener.close()
   }
+
+  @Test(
+    .disabled("Leasing buffers is not implemented in the executors yet"),
+    arguments: PThreadIOBackend.tested
+  )
+  @available(anyAppleOS 27.0, *)
+  func roundTripWithBuffersFromTheExecutor(ioBackend: PThreadIOBackend) async throws {
+    try await PThreadExecutor.withExecutor(name: "TCPSocketTest", ioBackend: ioBackend) { executor in
+      try await withOperationScheduler(executor) {
+        let listener = try await TCPListener.bind(to: Self.loopback)
+        let address = try listener.localAddress
+        let request = Array("Hello over a buffer that the kernel shares".utf8)
+        let response = Array("Hello back".utf8)
+
+        try await withThrowingTaskGroup { group in
+          group.addTask {
+            var client = try await TCPConnection.connect(to: address)
+            try await client.write { span in span.append(bytes: request) }
+            #expect(try await client.readBytes() == response)
+            try await client.close()
+          }
+
+          var server = try await listener.accept()
+          #expect(try await server.readBytes() == request)
+          try await server.write { span in span.append(bytes: response) }
+          try await server.close()
+          try await group.waitForAll()
+        }
+        try await listener.close()
+      }
+    }
+  }
+
+  @Test(
+    .disabled("Leasing buffers is not implemented in the executors yet"),
+    arguments: PThreadIOBackend.tested,
+    [1, 4]
+  )
+  @available(anyAppleOS 27.0, *)
+  func roundTripWithBuffersFromTheExecutorOnAPool(ioBackend: PThreadIOBackend, poolSize: Int) async throws {
+    try await PThreadTaskExecutor.withExecutor(name: "TCPSocketTest", poolSize: poolSize, ioBackend: ioBackend) {
+      executor in
+      try await withTaskExecutorPreference(executor) {
+        let listener = try await TCPListener.bind(to: Self.loopback)
+        let address = try listener.localAddress
+        let payload = (0..<100_000).map { UInt8(truncatingIfNeeded: $0 &* 7) }
+
+        try await withThrowingTaskGroup { group in
+          group.addTask {
+            var client = try await TCPConnection.connect(to: address)
+            try await client.writeAll(payload)
+            try await client.shutdown(.write)
+            try await client.close()
+          }
+
+          var server = try await listener.accept()
+          #expect(try await server.readLeasedUntilEndOfStream() == payload)
+          try await server.close()
+          try await group.waitForAll()
+        }
+        try await listener.close()
+      }
+    }
+  }
+
+  @Test(
+    .disabled("Leasing buffers is not implemented in the executors yet"),
+    arguments: PThreadIOBackend.tested
+  )
+  @available(anyAppleOS 27.0, *)
+  func theSpansOfALeaseCoverItsBytes(ioBackend: PThreadIOBackend) async throws {
+    try await PThreadExecutor.withExecutor(name: "TCPSocketTest", ioBackend: ioBackend) { executor in
+      try await withOperationScheduler(executor) {
+        try await Self.withConnectedPair { client, server in
+          try await client.write { span in span.append(bytes: [1, 2, 3, 4]) }
+          var buffer = try await server.read()
+          #expect(buffer.count == 4)
+          #expect(buffer.bytes.byteCount == 4)
+          // The memory is ours to modify while we hold the lease.
+          do {
+            var mutable = buffer.mutableBytes
+            mutable.storeBytes(of: 9, toByteOffset: 0, as: UInt8.self)
+          }
+          let first = unsafe buffer.bytes.unsafeLoad(fromByteOffset: 0, as: UInt8.self)
+          let last = unsafe buffer.bytes.unsafeLoad(fromByteOffset: 3, as: UInt8.self)
+          #expect(first == 9)
+          #expect(last == 4)
+          buffer.return()
+        }
+      }
+    }
+  }
+
+  @Test(
+    .disabled("Leasing buffers is not implemented in the executors yet"),
+    arguments: PThreadIOBackend.tested
+  )
+  @available(anyAppleOS 27.0, *)
+  func aSchedulerWithoutProvidedBuffersFallsBackToTemporaryBuffers(ioBackend: PThreadIOBackend) async throws {
+    try await PThreadExecutor.withExecutor(name: "TCPSocketTest", ioBackend: ioBackend) { executor in
+      // The wrapper only forwards the requirements of the protocol, so the closure based operations use the
+      // defaults of the protocol.
+      let scheduler = ForwardingTCPScheduler(executor: executor)
+      try await withOperationScheduler(scheduler) {
+        let listener = try await TCPListener.bind(to: Self.loopback)
+        let address = try listener.localAddress
+        let payload = Array("Served by the default implementation".utf8)
+
+        try await withThrowingTaskGroup { group in
+          group.addTask {
+            var client = try await TCPConnection.connect(to: address)
+            try await client.write { span in span.append(bytes: payload) }
+            try await client.shutdown(.write)
+            try await client.close()
+          }
+
+          var server = try await listener.accept()
+          #expect(try await server.readLeasedUntilEndOfStream() == payload)
+          try await server.close()
+          try await group.waitForAll()
+        }
+        try await listener.close()
+
+        // The leased buffers of the defaults are allocated, and returning them frees them.
+        let defaultsListener = try await TCPListener.bind(to: Self.loopback)
+        var sender = try await TCPConnection.connect(to: defaultsListener.localAddress)
+        var receiver = try await defaultsListener.accept()
+        try await defaultsListener.close()
+        try await sender.write { span in span.append(bytes: [5, 6, 7]) }
+        let received = try await receiver.read()
+        #expect(received.count == 3)
+        received.return()
+        try await sender.close()
+        try await receiver.close()
+      }
+    }
+  }
+
+  /// Runs the body with a connected client and server, which are closed afterwards.
+  @available(anyAppleOS 27.0, *)
+  private static func withConnectedPair<Return>(
+    _ body: (inout TCPConnection, inout TCPConnection) async throws -> Return
+  ) async throws -> Return {
+    let listener = try await TCPListener.bind(to: Self.loopback)
+    let address = try listener.localAddress
+    var client = try await TCPConnection.connect(to: address)
+    var server = try await listener.accept()
+    try await listener.close()
+    let result: Result<Return, any Error>
+    do {
+      result = .success(try await body(&client, &server))
+    } catch {
+      result = .failure(error)
+    }
+    try await client.close()
+    try await server.close()
+    return try result.get()
+  }
 }
 
 @available(anyAppleOS 27.0, *)
@@ -569,5 +727,98 @@ extension TCPConnection.ReadHalf {
   }
 }
 
+@available(anyAppleOS 27.0, *)
+extension TCPConnection {
+  /// Reads once with a buffer that the platform provides.
+  fileprivate mutating func readBytes() async throws(IOError) -> [UInt8] {
+    try await self.read { span in span.bytesArray() }
+  }
+
+  /// Writes all bytes, in as many writes with buffers that the platform provides as it takes.
+  fileprivate mutating func writeAll(_ bytes: [UInt8]) async throws(IOError) {
+    var offset = 0
+    while offset < bytes.count {
+      offset += try await self.write { span in
+        let count = min(span.freeCapacity, bytes.count - offset)
+        span.append(bytes: Array(bytes[offset..<(offset + count)]))
+        return count
+      }
+    }
+  }
+
+  /// Reads with buffers that the platform provides until the peer closed its side of the connection.
+  fileprivate mutating func readLeasedUntilEndOfStream() async throws(IOError) -> [UInt8] {
+    var contents = [UInt8]()
+    while true {
+      let piece = try await self.readBytes()
+      if piece.isEmpty {
+        return contents
+      }
+      contents += piece
+    }
+  }
+}
+
+/// A scheduler for TCP sockets that forwards every operation to an executor, and leaves the closure based
+/// operations to the defaults of the protocol.
+@available(anyAppleOS 27.0, *)
+private final class ForwardingTCPScheduler: TCPSocketOperationScheduler {
+  typealias TCPConnection = PThreadExecutor.TCPConnection
+  typealias TCPListener = PThreadExecutor.TCPListener
+
+  let executor: PThreadExecutor
+
+  init(executor: PThreadExecutor) {
+    self.executor = executor
+  }
+
+  func connect(to address: SocketAddress) async throws(IOError) -> TCPConnection {
+    try await self.executor.connect(to: address)
+  }
+
+  func listen(on address: SocketAddress, backlog: Int) async throws(IOError) -> TCPListener {
+    try await self.executor.listen(on: address, backlog: backlog)
+  }
+
+  func accept(listener: borrowing TCPListener) async throws(IOError) -> TCPConnection {
+    try await self.executor.accept(listener: listener)
+  }
+
+  func read(connection: borrowing TCPConnection, into buffer: inout OutputRawSpan) async throws(IOError) -> Int {
+    try await self.executor.read(connection: connection, into: &buffer)
+  }
+
+  func write(connection: borrowing TCPConnection, from buffer: RawSpan) async throws(IOError) -> Int {
+    try await self.executor.write(connection: connection, from: buffer)
+  }
+
+  func leaseBuffer() -> LeasedBuffer {
+    self.executor.leaseBuffer()
+  }
+
+  func read(connection: borrowing TCPConnection) async throws(IOError) -> LeasedBuffer {
+    try await self.executor.read(connection: connection)
+  }
+
+  func shutdown(connection: borrowing TCPConnection, direction: SocketShutdownDirection) async throws(IOError) {
+    try await self.executor.shutdown(connection: connection, direction: direction)
+  }
+
+  func close(connection: consuming TCPConnection) async throws(IOError) {
+    try await self.executor.close(connection: connection)
+  }
+
+  func close(listener: consuming TCPListener) async throws(IOError) {
+    try await self.executor.close(listener: listener)
+  }
+
+  func localAddress(of connection: borrowing TCPConnection) throws(IOError) -> SocketAddress {
+    try self.executor.localAddress(of: connection)
+  }
+
+  func localAddress(of listener: borrowing TCPListener) throws(IOError) -> SocketAddress {
+    try self.executor.localAddress(of: listener)
+  }
+}
 #endif
 #endif

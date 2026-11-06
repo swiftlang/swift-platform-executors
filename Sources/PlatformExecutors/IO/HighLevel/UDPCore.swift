@@ -155,6 +155,53 @@ struct UDPCore: ~Copyable, Sendable {
     _ = try await scheduler.write(socket: Self.socket(socket, of: scheduler), from: buffer)
   }
 
+  static func receive<Scheduler: UDPSocketOperationScheduler, Return: ~Copyable>(
+    socket: (any Sendable)?,
+    on scheduler: Scheduler,
+    _ body: (inout OutputRawSpan, SocketAddress) -> Return
+  ) async throws(IOError) -> Return {
+    try await scheduler.receive(socket: Self.socket(socket, of: scheduler), body: body)
+  }
+
+  static func send<Scheduler: UDPSocketOperationScheduler, Return: ~Copyable>(
+    to address: SocketAddress,
+    socket: (any Sendable)?,
+    on scheduler: Scheduler,
+    _ body: (inout OutputRawSpan) -> Return
+  ) async throws(IOError) -> Return {
+    try await scheduler.send(socket: Self.socket(socket, of: scheduler), to: address, body: body)
+  }
+
+  static func read<Scheduler: UDPSocketOperationScheduler, Return: ~Copyable>(
+    socket: (any Sendable)?,
+    on scheduler: Scheduler,
+    _ body: (inout OutputRawSpan) -> Return
+  ) async throws(IOError) -> Return {
+    try await scheduler.read(socket: Self.socket(socket, of: scheduler), body: body)
+  }
+
+  static func write<Scheduler: UDPSocketOperationScheduler, Return: ~Copyable>(
+    socket: (any Sendable)?,
+    on scheduler: Scheduler,
+    _ body: (inout OutputRawSpan) -> Return
+  ) async throws(IOError) -> Return {
+    try await scheduler.write(socket: Self.socket(socket, of: scheduler), body: body)
+  }
+
+  static func receive<Scheduler: UDPSocketOperationScheduler>(
+    socket: (any Sendable)?,
+    on scheduler: Scheduler
+  ) async throws(IOError) -> ReceivedDatagram {
+    try await scheduler.receive(socket: Self.socket(socket, of: scheduler))
+  }
+
+  static func read<Scheduler: UDPSocketOperationScheduler>(
+    socket: (any Sendable)?,
+    on scheduler: Scheduler
+  ) async throws(IOError) -> LeasedBuffer {
+    try await scheduler.read(socket: Self.socket(socket, of: scheduler))
+  }
+
   // MARK: - Closing
 
   consuming func close() async throws(IOError) {
