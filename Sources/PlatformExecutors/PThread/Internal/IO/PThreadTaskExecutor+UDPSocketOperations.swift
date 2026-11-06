@@ -26,6 +26,15 @@ extension PThreadTaskExecutor: UDPSocketOperationScheduler {
     try await self.current().bind(to: address)
   }
 
+  public func connectUDP(to address: SocketAddress) async throws(IOError) -> UDPSocket {
+    try await self.current().connectUDP(to: address)
+  }
+
+  public func connectUDP(socket: borrowing UDPSocket, to address: SocketAddress) async throws(IOError) {
+    // Connecting is a plain syscall that no executor has to perform.
+    try await unsafe self.executors[0].connectUDP(socket: socket, to: address)
+  }
+
   public func receive(
     socket: borrowing UDPSocket,
     into buffer: inout OutputRawSpan
@@ -41,12 +50,24 @@ extension PThreadTaskExecutor: UDPSocketOperationScheduler {
     try await self.current().send(socket: socket, from: buffer, to: address)
   }
 
+  public func read(socket: borrowing UDPSocket, into buffer: inout OutputRawSpan) async throws(IOError) -> Int {
+    try await self.current().read(socket: socket, into: &buffer)
+  }
+
+  public func write(socket: borrowing UDPSocket, from buffer: RawSpan) async throws(IOError) -> Int {
+    try await self.current().write(socket: socket, from: buffer)
+  }
+
   public func close(socket: consuming UDPSocket) async throws(IOError) {
     try await self.current().close(socket: socket)
   }
 
   public func localAddress(of socket: borrowing UDPSocket) throws(IOError) -> SocketAddress {
     try unsafe self.executors[0].localAddress(of: socket)
+  }
+
+  public func remoteAddress(of socket: borrowing UDPSocket) throws(IOError) -> SocketAddress {
+    try unsafe self.executors[0].remoteAddress(of: socket)
   }
 }
 #endif
