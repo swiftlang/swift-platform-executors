@@ -38,7 +38,7 @@ extension PThreadExecutor {
 @available(anyAppleOS 27.0, *)
 extension PThreadExecutor: TCPSocketOperationScheduler {
   package func connect(to address: SocketAddress) async throws(IOError) -> TCPConnection {
-    let socket = try StreamSocketSyscall.makeSocket(family: address.family)
+    let socket = try SocketSyscall.makeSocket(family: address.family)
 
     // The kernel reads the address while we are suspended, so it lives in
     // storage that outlives the operation.
@@ -61,13 +61,13 @@ extension PThreadExecutor: TCPSocketOperationScheduler {
   }
 
   package func listen(on address: SocketAddress, backlog: Int) async throws(IOError) -> TCPListener {
-    let socket = try StreamSocketSyscall.makeSocket(family: address.family)
+    let socket = try SocketSyscall.makeSocket(family: address.family)
     do {
-      try StreamSocketSyscall.setReuseAddress(socket)
-      try StreamSocketSyscall.bind(socket, to: address)
-      try StreamSocketSyscall.listen(socket, backlog: backlog)
+      try SocketSyscall.setReuseAddress(socket)
+      try SocketSyscall.bind(socket, to: address)
+      try SocketSyscall.listen(socket, backlog: backlog)
     } catch {
-      try? StreamSocketSyscall.close(socket)
+      try? SocketSyscall.close(socket)
       throw error
     }
     return TCPListener(fileDescriptor: socket)
@@ -137,7 +137,7 @@ extension PThreadExecutor: TCPSocketOperationScheduler {
   /// - Parameter connection: The connection to return the local address of.
   /// - Returns: The address that the connection is bound to locally.
   package func localAddress(of connection: borrowing TCPConnection) throws(IOError) -> SocketAddress {
-    try StreamSocketSyscall.localAddress(connection.fileDescriptor)
+    try SocketSyscall.localAddress(connection.fileDescriptor)
   }
 
   /// Returns the address that the listening socket is bound to.
@@ -147,7 +147,7 @@ extension PThreadExecutor: TCPSocketOperationScheduler {
   /// - Parameter listener: The listening socket to return the address of.
   /// - Returns: The address that the listening socket is bound to.
   package func localAddress(of listener: borrowing TCPListener) throws(IOError) -> SocketAddress {
-    try StreamSocketSyscall.localAddress(listener.fileDescriptor)
+    try SocketSyscall.localAddress(listener.fileDescriptor)
   }
 }
 #endif

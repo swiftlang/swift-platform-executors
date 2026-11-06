@@ -942,7 +942,7 @@ extension PThreadExecutor {
             .success(TCPConnection(fileDescriptor: socket))
           )
         case .failure(let error):
-          try? StreamSocketSyscall.close(socket)
+          try? SocketSyscall.close(socket)
           resumer.resumeConnection(continuation, .failure(error))
         }
 
@@ -976,7 +976,7 @@ extension PThreadExecutor {
           // We created the socket so we have to close it
           // TODO: In the future with io_uring we need to go through the backend
           // since io_uring should create the socket with `IORING_OP_SOCKET`.
-          try? StreamSocketSyscall.close(socket)
+          try? SocketSyscall.close(socket)
           continuation.resume(throwing: error)
         }
 

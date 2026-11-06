@@ -132,6 +132,10 @@ struct IOUringBackend: ~Copyable {
       // A send request sets `MSG_NOSIGNAL`, so it fails with `EPIPE` rather
       // than raising `SIGPIPE`.
       return unsafe .send(buffer, to: SocketDescriptor(rawValue: socket), context: context)
+    case .sendMessage(let socket, let message):
+      return unsafe .sendMessage(message, to: SocketDescriptor(rawValue: socket), context: context)
+    case .receiveMessage(let socket, let message):
+      return unsafe .receiveMessage(SocketDescriptor(rawValue: socket), into: message, context: context)
     case .shutdown(let socket, let direction):
       let how: SocketDescriptor.ShutdownKind =
         switch direction {

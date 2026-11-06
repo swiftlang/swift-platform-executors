@@ -47,6 +47,12 @@ enum IOOperation {
   /// Writes the given buffer to a socket.
   case write(socket: CInt, buffer: UnsafeRawBufferPointer)
 
+  /// Sends the datagram described by the given message, to the address in its name.
+  case sendMessage(socket: CInt, message: UnsafePointer<msghdr>)
+
+  /// Receives a datagram into the given message and writes the address of the sender into its name.
+  case receiveMessage(socket: CInt, message: UnsafeMutablePointer<msghdr>)
+
   /// Shuts down the given directions of a socket.
   case shutdown(socket: CInt, direction: SocketShutdownDirection)
 
@@ -74,6 +80,8 @@ enum IOOperation {
       .accept(let fileDescriptor),
       .read(let fileDescriptor, _),
       .write(let fileDescriptor, _),
+      .sendMessage(let fileDescriptor, _),
+      .receiveMessage(let fileDescriptor, _),
       .shutdown(let fileDescriptor, _),
       .close(let fileDescriptor):
       return fileDescriptor
