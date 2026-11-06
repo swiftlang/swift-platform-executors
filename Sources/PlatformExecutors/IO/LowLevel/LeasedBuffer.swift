@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+// swift-format-ignore-file: AmbiguousTrailingClosureOverload
 #if ExperimentalIO
 /// A leased buffer that must be manually returned when you are done using it.
 ///
@@ -114,6 +115,20 @@ public struct LeasedBuffer: ~Copyable, @unchecked Sendable {
   ) -> Return {
     var span = unsafe OutputRawSpan(buffer: self.memory, initializedCount: self.initializedCount)
     let result = body(&span)
+    self.initializedCount = span.byteCount
+    return result
+  }
+
+  /// Arbitrarily edit the storage underlying this buffer by invoking a
+  /// user-supplied closure with a mutable `OutputSpan` view over it.
+  ///
+  /// - Parameter body: The closure to invoke with the span.
+  /// - Returns: Whatever is returned by `body`.
+  public mutating func edit<Return: ~Copyable>(
+    _ body: (inout OutputRawSpan) async -> Return
+  ) async -> Return {
+    var span = unsafe OutputRawSpan(buffer: self.memory, initializedCount: self.initializedCount)
+    let result = await body(&span)
     self.initializedCount = span.byteCount
     return result
   }

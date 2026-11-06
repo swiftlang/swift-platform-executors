@@ -87,6 +87,18 @@ public protocol UDPSocketOperationScheduler<UDPSocket>: OperationScheduler {
   /// - Returns: The number of bytes sent.
   func write(socket: borrowing UDPSocket, from buffer: RawSpan) async throws(IOError) -> Int
 
+  /// Receives one datagram into a buffer that the scheduler provides.
+  ///
+  /// - Parameter socket: The socket to receive from.
+  /// - Returns: The datagram, whose buffer the caller has to return.
+  func receive(socket: borrowing UDPSocket) async throws(IOError) -> ReceivedDatagram
+
+  /// Receives one datagram from the peer of a connected socket into a buffer that the scheduler provides.
+  ///
+  /// - Parameter socket: The connected socket to read from.
+  /// - Returns: The buffer with the bytes of the datagram, which the caller has to return.
+  func read(socket: borrowing UDPSocket) async throws(IOError) -> LeasedBuffer
+
   /// Closes a socket.
   ///
   /// - Parameter socket: The socket to close.
@@ -105,5 +117,97 @@ public protocol UDPSocketOperationScheduler<UDPSocket>: OperationScheduler {
   /// - Parameter socket: The connected socket to return the peer of.
   /// - Returns: The address of the peer.
   func remoteAddress(of socket: borrowing UDPSocket) throws(IOError) -> SocketAddress
+}
+
+@available(anyAppleOS 27.0, *)
+extension UDPSocketOperationScheduler {
+  /// Receives one datagram and hands its bytes and the address of the sender to the closure.
+  ///
+  /// - Parameters:
+  ///   - socket: The socket to receive from.
+  ///   - body: The closure to invoke with the bytes of the datagram and the address of the sender.
+  /// - Returns: Whatever is returned by `body`.
+  // TODO: This closure should become throwing by adopting EitherError
+  public func receive<Return: ~Copyable>(
+    socket: borrowing UDPSocket,
+    body: (inout OutputRawSpan, SocketAddress) async -> Return
+  ) async throws(IOError) -> Return {
+    var datagram = try await self.receive(socket: socket)
+    let sender = datagram.sender
+    let result = await datagram.buffer.edit { span in await body(&span, sender) }
+    datagram.buffer.return()
+    return result
+  }
+
+  /// Sends the datagram that the closure appends to the given address. Nothing is sent if the closure appends
+  /// nothing.
+  ///
+  /// - Parameters:
+  ///   - socket: The socket to send from.
+  ///   - address: The address to send the datagram to.
+  ///   - body: The closure to invoke with the empty span of a buffer to fill.
+  /// - Returns: Whatever is returned by `body`.
+  // TODO: This closure should become throwing by adopting EitherError
+  public func send<Return: ~Copyable>(
+    socket: borrowing UDPSocket,
+    to address: SocketAddress,
+    body: (inout OutputRawSpan) async -> Return
+  ) async throws(IOError) -> Return {
+    var buffer = self.leaseBuffer()
+    let result = await buffer.edit(body)
+    do throws(IOError) {
+      if !buffer.isEmpty {
+        _ = try await self.send(socket: socket, from: buffer.bytes, to: address)
+      }
+    } catch {
+      buffer.return()
+      throw error
+    }
+    buffer.return()
+    return result
+  }
+
+  /// Reads one datagram from the peer of a connected socket and hands its bytes to the closure.
+  ///
+  /// - Parameters:
+  ///   - socket: The connected socket to read from.
+  ///   - body: The closure to invoke with the bytes of the datagram.
+  /// - Returns: Whatever is returned by `body`.
+  // TODO: This closure should become throwing by adopting EitherError
+  public func read<Return: ~Copyable>(
+    socket: borrowing UDPSocket,
+    body: (inout OutputRawSpan) async -> Return
+  ) async throws(IOError) -> Return {
+    var buffer = try await self.read(socket: socket)
+    let result = await buffer.edit(body)
+    buffer.return()
+    return result
+  }
+
+  /// Sends the datagram that the closure appends to the peer of a connected socket. Nothing is sent if the
+  /// closure appends nothing.
+  ///
+  /// - Parameters:
+  ///   - socket: The connected socket to write to.
+  ///   - body: The closure to invoke with the empty span of a buffer to fill.
+  /// - Returns: Whatever is returned by `body`.
+  // TODO: This closure should become throwing by adopting EitherError
+  public func write<Return: ~Copyable>(
+    socket: borrowing UDPSocket,
+    body: (inout OutputRawSpan) async -> Return
+  ) async throws(IOError) -> Return {
+    var buffer = self.leaseBuffer()
+    let result = await buffer.edit(body)
+    do throws(IOError) {
+      if !buffer.isEmpty {
+        _ = try await self.write(socket: socket, from: buffer.bytes)
+      }
+    } catch {
+      buffer.return()
+      throw error
+    }
+    buffer.return()
+    return result
+  }
 }
 #endif

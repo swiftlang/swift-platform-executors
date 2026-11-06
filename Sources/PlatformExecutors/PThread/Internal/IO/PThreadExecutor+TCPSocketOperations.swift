@@ -109,6 +109,15 @@ extension PThreadExecutor: TCPSocketOperationScheduler {
     }
   }
 
+  // TODO: Implement the operations that lease buffers.
+  package func leaseBuffer() -> LeasedBuffer {
+    fatalError("Leasing buffers is not implemented yet")
+  }
+
+  package func read(connection: borrowing TCPConnection) async throws(IOError) -> LeasedBuffer {
+    fatalError("Leasing buffers is not implemented yet")
+  }
+
   package func shutdown(
     connection: borrowing TCPConnection,
     direction: SocketShutdownDirection
