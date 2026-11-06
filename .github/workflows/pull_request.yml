@@ -47,3 +47,32 @@ jobs:
         run: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y curl && curl -fsSL -o /tmp/toolchain.tar.gz https://download.swift.org/tmp/pull-request/91981/9/ubuntu2604/PR-ubuntu2604.tar.gz && tar -xzf /tmp/toolchain.tar.gz -C / && rm /tmp/toolchain.tar.gz
       - name: Build / Test
         run: swift test --traits ExperimentalIOUring
+
+  cmake-build:
+    # CMake does not discover sources on its own, so this job checks that the CMake build compiles the same
+    # sources as SwiftPM and builds it with the I/O interfaces.
+    name: CMake Build (6.4 - resolute - aarch64)
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: swift:6.4-resolute
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install apt dependencies
+        run: apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq -y install curl cmake ninja-build jq
+      - name: Install the toolchain of https://github.com/swiftlang/swift/pull/91981
+        run: curl -fsSL -o /tmp/toolchain.tar.gz https://download.swift.org/tmp/pull-request/91981/9/ubuntu2604/PR-ubuntu2604.tar.gz && tar -xzf /tmp/toolchain.tar.gz -C / && rm /tmp/toolchain.tar.gz
+      - name: CMake version
+        run: cmake --version
+      - name: Configure with CMake
+        run: |
+          # The CMake File API query is what scripts/check-cmake-sources.sh reads the CMake sources from.
+          mkdir -p build/.cmake/api/v1/query
+          touch build/.cmake/api/v1/query/codemodel-v2
+          cmake -G Ninja -S . -B build -DCMAKE_BUILD_TYPE=Release -DSwiftPlatformExecutors_ENABLE_EXPERIMENTAL_IO=YES
+      - name: Validate CMake source lists
+        run: scripts/check-cmake-sources.sh build
+      - name: Build with CMake
+        run: cmake --build build

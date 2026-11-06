@@ -9,3 +9,10 @@ DerivedData/
 .netrc
 .swift-version
 .swiftpm
+
+# CMake
+/build
+/build-without-io
+
+# SourceKit-LSP
+/.index-build

@@ -1,0 +1,4 @@
+module CPlatformExecutors {
+  header "CPlatformExecutors.h"
+  export *
+}
