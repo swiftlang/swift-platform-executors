@@ -11,7 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin) || os(WASI)
-#if !canImport(Darwin) && !canImport(Glibc) && !os(WASI)
+#if !canImport(Darwin) && !canImport(Glibc) && !canImport(Musl) && !canImport(Android) && !os(WASI)
 #error("Unsupported platform")
 #endif
 
@@ -20,7 +20,7 @@
 enum PlatformIOBackend: ~Copyable {
   #if canImport(Darwin)
   case kqueue(KQueueReadinessBackend)
-  #elseif canImport(Glibc)
+  #elseif canImport(Glibc) || canImport(Musl) || canImport(Android)
   case epoll(EpollReadinessBackend)
   #if ExperimentalIOUring
   case ioUring(IOUringBackend)
@@ -33,7 +33,7 @@ enum PlatformIOBackend: ~Copyable {
   enum WakeupHandle: Sendable {
     #if canImport(Darwin)
     case kqueue(KQueueReadinessBackend.WakeupHandle)
-    #elseif canImport(Glibc)
+    #elseif canImport(Glibc) || canImport(Musl) || canImport(Android)
     case epoll(EpollReadinessBackend.WakeupHandle)
     #if ExperimentalIOUring
     case ioUring(IOUringBackend.WakeupHandle)
@@ -57,7 +57,7 @@ enum PlatformIOBackend: ~Copyable {
     #if canImport(Darwin)
     case .kqueue:
       self = .kqueue(try! KQueueReadinessBackend())
-    #elseif canImport(Glibc)
+    #elseif canImport(Glibc) || canImport(Musl) || canImport(Android)
     case .epoll:
       self = .epoll(try! EpollReadinessBackend())
     #if ExperimentalIOUring
@@ -78,7 +78,7 @@ enum PlatformIOBackend: ~Copyable {
     #if canImport(Darwin)
     case .kqueue(let backend):
       return .kqueue(backend.wakeupHandle)
-    #elseif canImport(Glibc)
+    #elseif canImport(Glibc) || canImport(Musl) || canImport(Android)
     case .epoll(let backend):
       return .epoll(backend.wakeupHandle)
     #if ExperimentalIOUring
@@ -102,7 +102,7 @@ enum PlatformIOBackend: ~Copyable {
     #if canImport(Darwin)
     case .kqueue(let handle):
       try KQueueReadinessBackend.wakeup(handle)
-    #elseif canImport(Glibc)
+    #elseif canImport(Glibc) || canImport(Musl) || canImport(Android)
     case .epoll(let handle):
       try EpollReadinessBackend.wakeup(handle)
     #if ExperimentalIOUring
@@ -130,7 +130,7 @@ enum PlatformIOBackend: ~Copyable {
     #if canImport(Darwin)
     case .kqueue:
       return unsafe KQueueReadinessBackend.attempt(operation)
-    #elseif canImport(Glibc)
+    #elseif canImport(Glibc) || canImport(Musl) || canImport(Android)
     case .epoll:
       return unsafe EpollReadinessBackend.attempt(operation)
     #if ExperimentalIOUring
@@ -155,7 +155,7 @@ enum PlatformIOBackend: ~Copyable {
     case .kqueue(var backend):
       unsafe backend.submit(operation, id: id)
       self = .kqueue(backend)
-    #elseif canImport(Glibc)
+    #elseif canImport(Glibc) || canImport(Musl) || canImport(Android)
     case .epoll(var backend):
       unsafe backend.submit(operation, id: id)
       self = .epoll(backend)
@@ -181,7 +181,7 @@ enum PlatformIOBackend: ~Copyable {
     case .kqueue(var backend):
       backend.cancel(id)
       self = .kqueue(backend)
-    #elseif canImport(Glibc)
+    #elseif canImport(Glibc) || canImport(Musl) || canImport(Android)
     case .epoll(var backend):
       backend.cancel(id)
       self = .epoll(backend)
@@ -217,7 +217,7 @@ enum PlatformIOBackend: ~Copyable {
         throw error
       }
       self = .kqueue(backend)
-    #elseif canImport(Glibc)
+    #elseif canImport(Glibc) || canImport(Musl) || canImport(Android)
     case .epoll(var backend):
       do {
         try backend.wait(strategy: strategy, completions: &completions)
@@ -263,7 +263,7 @@ enum PlatformIOBackend: ~Copyable {
         throw error
       }
       self = .kqueue(backend)
-    #elseif canImport(Glibc)
+    #elseif canImport(Glibc) || canImport(Musl) || canImport(Android)
     case .epoll(var backend):
       do {
         try backend.wait(strategy: strategy)

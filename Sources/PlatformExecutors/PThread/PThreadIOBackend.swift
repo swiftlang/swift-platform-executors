@@ -18,7 +18,7 @@ public struct PThreadIOBackend: Sendable, Hashable, CustomStringConvertible {
     case platformDefault
     #if canImport(Darwin)
     case kqueue
-    #elseif canImport(Glibc)
+    #elseif canImport(Glibc) || canImport(Musl) || canImport(Android)
     case epoll
     #if ExperimentalIOUring
     case ioUring
@@ -41,7 +41,7 @@ public struct PThreadIOBackend: Sendable, Hashable, CustomStringConvertible {
   public static var kqueue: Self {
     Self(kind: .kqueue)
   }
-  #elseif canImport(Glibc)
+  #elseif canImport(Glibc) || canImport(Musl) || canImport(Android)
   /// The `epoll` mechanism.
   public static var epoll: Self {
     Self(kind: .epoll)
@@ -65,7 +65,7 @@ public struct PThreadIOBackend: Sendable, Hashable, CustomStringConvertible {
     #if canImport(Darwin)
     case .kqueue:
       return "kqueue"
-    #elseif canImport(Glibc)
+    #elseif canImport(Glibc) || canImport(Musl) || canImport(Android)
     case .epoll:
       return "epoll"
     #if ExperimentalIOUring
@@ -85,7 +85,7 @@ extension PThreadIOBackend {
     }
     #if canImport(Darwin)
     return .kqueue
-    #elseif canImport(Glibc)
+    #elseif canImport(Glibc) || canImport(Musl) || canImport(Android)
     #if ExperimentalIOUring
     // The kernel can be too old for io_uring or not allow it, for example because of a container's seccomp
     // profile. Then we use epoll.
@@ -108,7 +108,7 @@ extension PThreadIOBackend {
     #if canImport(Darwin)
     case .kqueue:
       return KQueueReadinessBackend.performsFileOperations
-    #elseif canImport(Glibc)
+    #elseif canImport(Glibc) || canImport(Musl) || canImport(Android)
     case .epoll:
       return EpollReadinessBackend.performsFileOperations
     #if ExperimentalIOUring

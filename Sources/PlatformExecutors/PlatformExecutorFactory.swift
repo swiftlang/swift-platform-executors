@@ -101,7 +101,7 @@
   }
 }
 
-#elseif os(Linux) || os(FreeBSD)
+#elseif os(Linux) || os(Android) || os(FreeBSD)
 #if canImport(FoundationEssentials)
 import FoundationEssentials
 #else

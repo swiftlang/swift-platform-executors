@@ -23,8 +23,14 @@
 //
 //===----------------------------------------------------------------------===//
 
+#if canImport(Glibc) || canImport(Musl) || canImport(Android)
 #if canImport(Glibc)
 import Glibc
+#elseif canImport(Musl)
+import Musl
+#else
+import Android
+#endif
 import CPlatformExecutors
 
 internal enum TimerFileDescriptor {
