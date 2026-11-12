@@ -240,6 +240,7 @@ public final class PThreadTaskExecutor: TaskExecutor {
     unsafe self.executors[abs(self.index.wrappingAdd(1, ordering: .relaxed).newValue % self.executors.count)]
   }
 
+  #if ExperimentalIO && !os(WASI)
   /// Returns the executor of the pool that the calling thread runs, or the next
   /// one if the calling thread is not one of the pool.
   internal func current() -> PThreadExecutor {
@@ -255,6 +256,7 @@ public final class PThreadTaskExecutor: TaskExecutor {
     }
     return self.next()
   }
+  #endif
 }
 
 #if !canImport(Darwin)
