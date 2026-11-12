@@ -28,7 +28,7 @@
 #if canImport(Glibc)
 @unsafe @preconcurrency import Glibc
 #elseif canImport(Musl)
-@preconcurrency import Musl
+@unsafe @preconcurrency import Musl
 #elseif canImport(Darwin)
 import Darwin
 #elseif os(WASI)

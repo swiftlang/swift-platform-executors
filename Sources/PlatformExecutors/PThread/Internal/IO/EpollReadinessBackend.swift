@@ -23,8 +23,12 @@
 //
 //===----------------------------------------------------------------------===//
 
+#if canImport(Glibc) || canImport(Musl)
 #if canImport(Glibc)
 import Glibc
+#else
+import Musl
+#endif
 import CPlatformExecutors
 #if ExperimentalIO
 internal import BasicContainers
