@@ -23,12 +23,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if os(Linux) || os(FreeBSD) || canImport(Darwin) || os(WASI)
+#if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin) || os(WASI)
 
 #if canImport(Glibc)
 @unsafe @preconcurrency import Glibc
 #elseif canImport(Musl)
 @unsafe @preconcurrency import Musl
+#elseif canImport(Android)
+@unsafe @preconcurrency import Android
 #elseif canImport(Darwin)
 import Darwin
 #elseif os(WASI)

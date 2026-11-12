@@ -15,6 +15,13 @@
 #include <CPlatformExecutors.h>
 #include <pthread.h>
 #include <sys/socket.h>
+#ifdef __ANDROID__
+#include <fcntl.h>
+#include <limits.h>
+#include <stdio.h>
+#include <sys/prctl.h>
+#include <unistd.h>
+#endif
 
 int CPlatformExecutors_accept4(int socket, struct sockaddr *address, socklen_t *address_length, int flags) {
     return accept4(socket, address, address_length, flags);

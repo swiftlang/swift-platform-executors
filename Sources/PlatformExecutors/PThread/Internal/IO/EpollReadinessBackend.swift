@@ -23,11 +23,13 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if canImport(Glibc) || canImport(Musl)
+#if canImport(Glibc) || canImport(Musl) || canImport(Android)
 #if canImport(Glibc)
 import Glibc
-#else
+#elseif canImport(Musl)
 import Musl
+#else
+import Android
 #endif
 import CPlatformExecutors
 #if ExperimentalIO

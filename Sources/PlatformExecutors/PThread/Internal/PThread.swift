@@ -76,7 +76,12 @@ private func withThreadAttributes(
   guard let stackSize else {
     return body(nil)
   }
+  #if os(Android)
+  // Bionic's `pthread_attr_t` holds a pointer, so creating one is unsafe.
+  var attr = unsafe pthread_attr_t()
+  #else
   var attr = pthread_attr_t()
+  #endif
   var result = unsafe pthread_attr_init(&attr)
   guard result == 0 else {
     return result
@@ -120,6 +125,30 @@ private func sysPthread_create(
   #else
   var handleLinux = pthread_t()
   #endif
+  #if os(Android)
+  // NDK 27: void* _Nonnull (* _Nonnull __start_routine)(void* _Nonnull)
+  func coerceThreadDestructor(
+    _ destructor: @escaping ThreadDestructor
+  ) -> (@convention(c) (UnsafeMutableRawPointer) -> UnsafeMutableRawPointer) {
+    unsafe destructor
+  }
+
+  // NDK 28: void* _Nullable (* _Nonnull __start_routine)(void* _Nullable)
+  func coerceThreadDestructor(
+    _ destructor: @escaping ThreadDestructor
+  ) -> (@convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?) {
+    unsafe unsafeBitCast(destructor, to: (@convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?).self)
+  }
+
+  let result = unsafe withThreadAttributes(stackSize: stackSize) { attr in
+    unsafe pthread_create(
+      &handleLinux,
+      attr,
+      coerceThreadDestructor(destructor),
+      args
+    )
+  }
+  #else
   let result = unsafe withThreadAttributes(stackSize: stackSize) { attr in
     unsafe pthread_create(
       &handleLinux,
@@ -128,6 +157,7 @@ private func sysPthread_create(
       args
     )
   }
+  #endif
   unsafe handle.pointee = handleLinux
   return result
   #endif
@@ -216,7 +246,7 @@ enum PThread {
         body()
 
         #if os(Android)
-        return UnsafeMutableRawPointer(bitPattern: 0xdeadbee)!
+        return unsafe UnsafeMutableRawPointer(bitPattern: 0xdeadbee)!
         #else
         return nil
         #endif
