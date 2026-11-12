@@ -21,6 +21,11 @@ jobs:
       linux_pre_build_command: "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y curl && curl -fsSL -o /tmp/toolchain.tar.gz https://download.swift.org/tmp/pull-request/91981/15/ubuntu2604/PR-ubuntu2604.tar.gz && tar -xzf /tmp/toolchain.tar.gz -C / && rm /tmp/toolchain.tar.gz"
       windows_swift_versions: "[\"nightly\"]"
       linux_build_command: swift test --traits ExperimentalIO
+      enable_linux_static_sdk_build: true
+      linux_static_sdk_versions: "[\"6.4\"]"
+      enable_android_sdk_build: true
+      enable_android_sdk_checks: true
+      android_sdk_versions: "[\"6.4\"]"
 
   soundness:
     name: Soundness
