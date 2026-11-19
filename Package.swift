@@ -53,7 +53,7 @@ let package = Package(
     .package(url: "https://github.com/apple/swift-system.git", branch: "fb-io-uring-udp-messages"),
     .package(
       url: "https://github.com/apple/swift-collections.git",
-      exact: "1.7.1",
+      exact: "1.7.6",
       traits: [
         .defaults,
         .trait(name: "UnstableHashedContainers", condition: .when(traits: ["ExperimentalIO"])),
