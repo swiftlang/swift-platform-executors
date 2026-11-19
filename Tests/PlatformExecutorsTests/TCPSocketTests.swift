@@ -38,11 +38,11 @@ private func currentThreadIdentity() -> UInt {
 
 @Suite
 struct TCPSocketTests {
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   private static let loopback = SocketAddress.v4(SocketAddress.V4(address: .loopback, port: 0))
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func bindReportsThePickedPort(ioBackend: PThreadIOBackend) async throws {
     try await PThreadExecutor.withExecutor(name: "TCPSocketTest", ioBackend: ioBackend) { executor in
       try await withOperationScheduler(executor) {
@@ -61,7 +61,7 @@ struct TCPSocketTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func connectToRefusedPortFails(ioBackend: PThreadIOBackend) async throws {
     try await PThreadExecutor.withExecutor(name: "TCPSocketTest", ioBackend: ioBackend) { executor in
       try await withOperationScheduler(executor) {
@@ -76,7 +76,7 @@ struct TCPSocketTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func echoWithOperationScheduler(ioBackend: PThreadIOBackend) async throws {
     try await PThreadExecutor.withExecutor(name: "TCPSocketTest", ioBackend: ioBackend) { executor in
       try await withOperationScheduler(executor) {
@@ -86,7 +86,7 @@ struct TCPSocketTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested, [1, 4])
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func echoWithPThreadTaskExecutorPreference(ioBackend: PThreadIOBackend, poolSize: Int) async throws {
     try await PThreadTaskExecutor.withExecutor(name: "TCPSocketTest", poolSize: poolSize, ioBackend: ioBackend) {
       executor in
@@ -97,7 +97,7 @@ struct TCPSocketTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func echoWithTaskExecutorPreference(ioBackend: PThreadIOBackend) async throws {
     try await PThreadExecutor.withExecutor(name: "TCPSocketTest", ioBackend: ioBackend) { executor in
       try await withTaskExecutorPreference(executor) {
@@ -107,7 +107,7 @@ struct TCPSocketTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func acceptOnACancelledTaskResumesWithCancelled(ioBackend: PThreadIOBackend) async throws {
     try await PThreadExecutor.withExecutor(name: "TCPSocketTest", ioBackend: ioBackend) { executor in
       try await withOperationScheduler(executor) {
@@ -133,7 +133,7 @@ struct TCPSocketTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func cancellingAPendingAcceptResumesWithCancelled(ioBackend: PThreadIOBackend) async throws {
     try await PThreadExecutor.withExecutor(name: "TCPSocketTest", ioBackend: ioBackend) { executor in
       try await withOperationScheduler(executor) {
@@ -143,7 +143,7 @@ struct TCPSocketTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested, [1, 4])
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func cancellingAPendingAcceptOnTheExecutorResumesWithCancelled(
     ioBackend: PThreadIOBackend,
     poolSize: Int
@@ -159,7 +159,7 @@ struct TCPSocketTests {
   }
 
   /// Cancels an accept that waits for a connection that never comes.
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   private static func cancelPendingAccept() async throws {
     let (bound, boundContinuation) = AsyncStream.makeStream(of: Void.self)
 
@@ -188,7 +188,7 @@ struct TCPSocketTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func cancellingAPendingReadResumesWithCancelledAndKeepsTheConnection(ioBackend: PThreadIOBackend) async throws {
     try await PThreadExecutor.withExecutor(name: "TCPSocketTest", ioBackend: ioBackend) { executor in
       try await withOperationScheduler(executor) {
@@ -236,7 +236,7 @@ struct TCPSocketTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested, [1, 4])
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func cancellingAPendingWriteResumesWithCancelled(ioBackend: PThreadIOBackend, poolSize: Int) async throws {
     try await PThreadTaskExecutor.withExecutor(name: "TCPSocketTest", poolSize: poolSize, ioBackend: ioBackend) {
       executor in
@@ -276,7 +276,7 @@ struct TCPSocketTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func escalatingThePriorityOfAPendingAcceptKeepsItPending(ioBackend: PThreadIOBackend) async throws {
     try await PThreadExecutor.withExecutor(name: "TCPSocketTest", ioBackend: ioBackend) { executor in
       try await withOperationScheduler(executor) {
@@ -305,7 +305,7 @@ struct TCPSocketTests {
   }
 
   @Test
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func droppingAListenerWithoutClosingItTraps() async throws {
     await #expect(processExitsWith: .failure) {
       try await PThreadExecutor.withExecutor(name: "TCPSocketTest") { executor in
@@ -320,7 +320,7 @@ struct TCPSocketTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func connectionsAreUsedOnOtherExecutorsOfThePoolThanTheOneThatAcceptedThem(
     ioBackend: PThreadIOBackend
   ) async throws {
@@ -368,7 +368,7 @@ struct TCPSocketTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func operationsOfAPoolStayOnTheThreadOfTheTask(ioBackend: PThreadIOBackend) async throws {
     let tasks = 32
     try await PThreadTaskExecutor.withExecutor(name: "TCPSocketTest", poolSize: 4, ioBackend: ioBackend) { executor in
@@ -405,7 +405,7 @@ struct TCPSocketTests {
   }
 
   @Test
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func bindingWithoutAnOperationSchedulerTraps() async throws {
     await #expect(processExitsWith: .failure) {
       let listener = try await TCPListener.bind(to: .v4(SocketAddress.V4(address: .loopback, port: 0)))
@@ -414,7 +414,7 @@ struct TCPSocketTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested, [1, 4])
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func concurrentEcho(ioBackend: PThreadIOBackend, poolSize: Int) async throws {
     try await PThreadTaskExecutor.withExecutor(name: "TCPSocketTest", poolSize: poolSize, ioBackend: ioBackend) {
       executor in
@@ -455,7 +455,7 @@ struct TCPSocketTests {
   }
 
   /// Echoes a payload through a connection between a client and a server task.
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   private static func echo() async throws {
     let listener = try await TCPListener.bind(to: Self.loopback)
     let address = try listener.localAddress
@@ -488,7 +488,7 @@ struct TCPSocketTests {
     .disabled("Leasing buffers is not implemented in the executors yet"),
     arguments: PThreadIOBackend.tested
   )
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func roundTripWithBuffersFromTheExecutor(ioBackend: PThreadIOBackend) async throws {
     try await PThreadExecutor.withExecutor(name: "TCPSocketTest", ioBackend: ioBackend) { executor in
       try await withOperationScheduler(executor) {
@@ -521,7 +521,7 @@ struct TCPSocketTests {
     arguments: PThreadIOBackend.tested,
     [1, 4]
   )
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func roundTripWithBuffersFromTheExecutorOnAPool(ioBackend: PThreadIOBackend, poolSize: Int) async throws {
     try await PThreadTaskExecutor.withExecutor(name: "TCPSocketTest", poolSize: poolSize, ioBackend: ioBackend) {
       executor in
@@ -552,7 +552,7 @@ struct TCPSocketTests {
     .disabled("Leasing buffers is not implemented in the executors yet"),
     arguments: PThreadIOBackend.tested
   )
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func theSpansOfALeaseCoverItsBytes(ioBackend: PThreadIOBackend) async throws {
     try await PThreadExecutor.withExecutor(name: "TCPSocketTest", ioBackend: ioBackend) { executor in
       try await withOperationScheduler(executor) {
@@ -580,7 +580,7 @@ struct TCPSocketTests {
     .disabled("Leasing buffers is not implemented in the executors yet"),
     arguments: PThreadIOBackend.tested
   )
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func aSchedulerWithoutProvidedBuffersFallsBackToTemporaryBuffers(ioBackend: PThreadIOBackend) async throws {
     try await PThreadExecutor.withExecutor(name: "TCPSocketTest", ioBackend: ioBackend) { executor in
       // The wrapper only forwards the requirements of the protocol, so the closure based operations use the
@@ -622,7 +622,7 @@ struct TCPSocketTests {
   }
 
   /// Runs the body with a connected client and server, which are closed afterwards.
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   private static func withConnectedPair<Return>(
     _ body: (inout TCPConnection, inout TCPConnection) async throws -> Return
   ) async throws -> Return {
@@ -643,7 +643,7 @@ struct TCPSocketTests {
   }
 }
 
-@available(anyAppleOS 27.0, *)
+@available(SwiftStdlib 6.5, *)
 extension TCPConnection {
   /// Reads once, returning at most `count` bytes, or none at the end of the stream.
   fileprivate mutating func read(count: Int) async throws(IOError) -> [UInt8] {
@@ -682,7 +682,7 @@ extension TCPConnection {
   }
 }
 
-@available(anyAppleOS 27.0, *)
+@available(SwiftStdlib 6.5, *)
 extension TCPConnection {
   /// Writes everything back that the peer sends until it closes its side of the connection.
   fileprivate mutating func echoUntilEndOfStream() async throws(IOError) {
@@ -704,7 +704,7 @@ extension TCPConnection {
   }
 }
 
-@available(anyAppleOS 27.0, *)
+@available(SwiftStdlib 6.5, *)
 extension TCPConnection.ReadHalf {
   /// Reads until the peer closed its side of the connection.
   fileprivate mutating func readUntilEndOfStream() async throws(IOError) -> [UInt8] {
@@ -727,7 +727,7 @@ extension TCPConnection.ReadHalf {
   }
 }
 
-@available(anyAppleOS 27.0, *)
+@available(SwiftStdlib 6.5, *)
 extension TCPConnection {
   /// Reads once with a buffer that the platform provides.
   fileprivate mutating func readBytes() async throws(IOError) -> [UInt8] {
@@ -761,7 +761,7 @@ extension TCPConnection {
 
 /// A scheduler for TCP sockets that forwards every operation to an executor, and leaves the closure based
 /// operations to the defaults of the protocol.
-@available(anyAppleOS 27.0, *)
+@available(SwiftStdlib 6.5, *)
 private final class ForwardingTCPScheduler: TCPSocketOperationScheduler {
   typealias TCPConnection = PThreadExecutor.TCPConnection
   typealias TCPListener = PThreadExecutor.TCPListener

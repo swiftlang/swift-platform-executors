@@ -28,7 +28,7 @@ import Darwin
 /// listener that was closed again, no other test that runs in parallel can bind the port while the body runs.
 ///
 /// - Parameter body: The body to run with the address.
-@available(anyAppleOS 27.0, *)
+@available(SwiftStdlib 6.5, *)
 func withRefusingAddress(
   _ body: (SocketAddress) async throws -> Void
 ) async throws {

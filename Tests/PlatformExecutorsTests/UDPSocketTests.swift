@@ -20,12 +20,13 @@ import Testing
 
 @Suite
 struct UDPSocketTests {
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   private static let loopbackV4 = SocketAddress.v4(SocketAddress.V4(address: .loopback, port: 0))
+  @available(SwiftStdlib 6.5, *)
   private static let loopbackV6 = SocketAddress.v6(SocketAddress.V6(address: .loopback, port: 0))
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func bindReportsThePickedPortV4(ioBackend: PThreadIOBackend) async throws {
     try await PThreadExecutor.withExecutor(name: "UDPSocketTest", ioBackend: ioBackend) { executor in
       try await withOperationScheduler(executor) {
@@ -44,7 +45,7 @@ struct UDPSocketTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func bindReportsThePickedPortV6(ioBackend: PThreadIOBackend) async throws {
     try await PThreadExecutor.withExecutor(name: "UDPSocketTest", ioBackend: ioBackend) { executor in
       try await withOperationScheduler(executor) {
@@ -63,7 +64,7 @@ struct UDPSocketTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func exchangeWithOperationScheduler(ioBackend: PThreadIOBackend) async throws {
     try await PThreadExecutor.withExecutor(name: "UDPSocketTest", ioBackend: ioBackend) { executor in
       try await withOperationScheduler(executor) {
@@ -73,7 +74,7 @@ struct UDPSocketTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested, [1, 4])
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func exchangeWithPThreadTaskExecutorPreference(ioBackend: PThreadIOBackend, poolSize: Int) async throws {
     try await PThreadTaskExecutor.withExecutor(name: "UDPSocketTest", poolSize: poolSize, ioBackend: ioBackend) {
       executor in
@@ -84,7 +85,7 @@ struct UDPSocketTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func receiveTruncatesALargerDatagram(ioBackend: PThreadIOBackend) async throws {
     try await PThreadExecutor.withExecutor(name: "UDPSocketTest", ioBackend: ioBackend) { executor in
       try await withOperationScheduler(executor) {
@@ -103,7 +104,7 @@ struct UDPSocketTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested, [1, 4])
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func cancellingAPendingReceiveResumesWithCancelledAndKeepsTheSocket(
     ioBackend: PThreadIOBackend,
     poolSize: Int
@@ -158,7 +159,7 @@ struct UDPSocketTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested, [1, 4])
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func connectedSocketExchangesWithItsPeer(ioBackend: PThreadIOBackend, poolSize: Int) async throws {
     try await PThreadTaskExecutor.withExecutor(name: "UDPSocketTest", poolSize: poolSize, ioBackend: ioBackend) {
       executor in
@@ -182,7 +183,7 @@ struct UDPSocketTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested, [1, 4])
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func withSplitReceivesWhileSending(ioBackend: PThreadIOBackend, poolSize: Int) async throws {
     try await PThreadTaskExecutor.withExecutor(name: "UDPSocketTest", poolSize: poolSize, ioBackend: ioBackend) {
       executor in
@@ -219,7 +220,7 @@ struct UDPSocketTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func connectingABoundSocketKeepsItsAddressAndReportsThePeer(ioBackend: PThreadIOBackend) async throws {
     try await PThreadExecutor.withExecutor(name: "UDPSocketTest", ioBackend: ioBackend) { executor in
       try await withOperationScheduler(executor) {
@@ -244,7 +245,7 @@ struct UDPSocketTests {
   }
 
   /// Sends a datagram to a socket, which sends a reply to the address it received the datagram from.
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   private static func exchange() async throws {
     var server = try await UDPSocket.bind(to: Self.loopbackV4)
     var client = try await UDPSocket.bind(to: Self.loopbackV4)
@@ -269,7 +270,7 @@ struct UDPSocketTests {
     .disabled("Leasing buffers is not implemented in the executors yet"),
     arguments: PThreadIOBackend.tested
   )
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func exchangeWithBuffersFromTheExecutor(ioBackend: PThreadIOBackend) async throws {
     try await PThreadExecutor.withExecutor(name: "UDPSocketTest", ioBackend: ioBackend) { executor in
       try await withOperationScheduler(executor) {
@@ -302,7 +303,7 @@ struct UDPSocketTests {
     .disabled("Leasing buffers is not implemented in the executors yet"),
     arguments: PThreadIOBackend.tested
   )
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func connectedSocketReadsAndWritesWithBuffersFromTheExecutor(ioBackend: PThreadIOBackend) async throws {
     try await PThreadExecutor.withExecutor(name: "UDPSocketTest", ioBackend: ioBackend) { executor in
       try await withOperationScheduler(executor) {
@@ -326,7 +327,7 @@ struct UDPSocketTests {
   }
 }
 
-@available(anyAppleOS 27.0, *)
+@available(SwiftStdlib 6.5, *)
 extension UDPSocket {
   /// Receives one datagram of at most `maxCount` bytes.
   fileprivate mutating func receive(maxCount: Int) async throws(IOError) -> ([UInt8], SocketAddress) {
@@ -343,7 +344,7 @@ extension UDPSocket {
     try await self.send(from: bytes.span.bytes, to: address)
   }
 }
-@available(anyAppleOS 27.0, *)
+@available(SwiftStdlib 6.5, *)
 extension UDPConnection {
   /// Reads one datagram of at most `maxCount` bytes from the peer of a connected socket.
   fileprivate mutating func read(maxCount: Int) async throws(IOError) -> [UInt8] {
@@ -361,7 +362,7 @@ extension UDPConnection {
   }
 }
 
-@available(anyAppleOS 27.0, *)
+@available(SwiftStdlib 6.5, *)
 extension UDPConnection.ReadHalf {
   /// Reads one datagram of at most `maxCount` bytes.
   fileprivate mutating func read(maxCount: Int) async throws(IOError) -> [UInt8] {
@@ -374,7 +375,7 @@ extension UDPConnection.ReadHalf {
   }
 }
 
-@available(anyAppleOS 27.0, *)
+@available(SwiftStdlib 6.5, *)
 extension UDPConnection.WriteHalf {
   /// Writes the bytes as one datagram.
   fileprivate mutating func write(_ bytes: [UInt8]) async throws(IOError) {

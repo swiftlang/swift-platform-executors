@@ -19,7 +19,7 @@ import Testing
 @Suite
 struct PlatformExecutorTests {
   @Test()
-  @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+  @available(SwiftStdlib 6.5, *)
   func test() async throws {
     await PlatformExecutorFactory.withTaskExecutor(name: "Test") { executor in
       #expect(await ExecutorFixture.test(executor: executor))

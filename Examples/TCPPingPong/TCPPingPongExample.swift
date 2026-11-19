@@ -16,7 +16,7 @@
 
 /// Sends TCP ping pong between a client and a server over the loopback interface.
 @main
-@available(anyAppleOS 27.0, *)
+@available(SwiftStdlib 6.5, *)
 struct TCPPingPongExample {
   /// The number of iterations.
   static let rounds = 5
@@ -86,7 +86,7 @@ struct TCPPingPongExample {
   }
 }
 
-@available(anyAppleOS 27.0, *)
+@available(SwiftStdlib 6.5, *)
 extension TCPConnection {
   fileprivate mutating func write(message: String) async throws(IOError) {
     try await self.write(from: message.utf8Span.span.bytes)

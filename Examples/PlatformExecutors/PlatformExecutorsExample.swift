@@ -17,11 +17,11 @@
 import Dispatch
 #endif
 
-@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+@available(SwiftStdlib 6.5, *)
 typealias DefaultExecutorFactory = PlatformExecutorFactory
 
 @main
-@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+@available(SwiftStdlib 6.5, *)
 struct Example {
   static func main() async throws {
     print("Starting executor example")
@@ -136,7 +136,7 @@ struct Example {
   }
 }
 
-@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+@available(SwiftStdlib 6.5, *)
 actor Run {
   nonisolated var unownedExecutor: UnownedSerialExecutor {
     unsafe self.executor.asUnownedSerialExecutor()

@@ -14,7 +14,7 @@
 #if os(Linux) || os(FreeBSD) || canImport(Darwin)
 import BasicContainers
 
-@available(anyAppleOS 27.0, *)
+@available(SwiftStdlib 6.5, *)
 extension UniqueArray where Element: ~Copyable {
   /// Appends the elements that a closure initializes in an output span, which it can do across suspension
   /// points.
@@ -67,7 +67,7 @@ extension UniqueArray where Element: ~Copyable {
   }
 }
 
-@available(anyAppleOS 27.0, *)
+@available(SwiftStdlib 6.5, *)
 extension UniqueArray<UInt8> {
   /// Appends the bytes that a closure initializes in an output raw span, which it can do across suspension
   /// points.
