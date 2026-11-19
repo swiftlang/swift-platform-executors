@@ -13,6 +13,7 @@
 #if ExperimentalIO
 #if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
 @_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import _Concurrency
+package import _PlatformExecutorsCore
 
 #if canImport(Glibc)
 import Glibc

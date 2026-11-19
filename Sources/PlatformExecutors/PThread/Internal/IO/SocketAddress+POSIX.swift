@@ -12,6 +12,8 @@
 
 #if ExperimentalIO
 #if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
+import _PlatformExecutorsCore
+
 #if canImport(Glibc)
 import Glibc
 #elseif canImport(Musl)
@@ -29,6 +31,7 @@ extension SocketAddress {
       AF_INET
     case .v6:
       AF_INET6
+    @unknown default: fatalError("Unsupported socket address: \(self)")
     }
   }
 
@@ -68,6 +71,7 @@ extension SocketAddress {
         }
       }
       return try unsafe Self.withUnsafeSockAddress(of: &address, body)
+    @unknown default: fatalError("Unsupported socket address: \(self)")
     }
   }
 

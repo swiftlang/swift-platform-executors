@@ -93,6 +93,7 @@ let package = Package(
     .target(
       name: "PlatformExecutors",
       dependencies: [
+        .target(name: "_PlatformExecutorsCore"),
         .target(name: "CPlatformExecutors"),
         .product(name: "BasicContainers", package: "swift-collections"),
         .product(
@@ -111,6 +112,10 @@ let package = Package(
           condition: .when(platforms: [.linux], traits: ["ExperimentalIOUring"])
         ),
       ],
+      swiftSettings: swiftSettings
+    ),
+    .target(
+      name: "_PlatformExecutorsCore",
       swiftSettings: swiftSettings
     ),
     .target(

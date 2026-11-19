@@ -24,6 +24,8 @@
 //===----------------------------------------------------------------------===//
 
 #if canImport(Darwin)
+
+import _PlatformExecutorsCore
 import Darwin
 #if ExperimentalIO
 internal import BasicContainers

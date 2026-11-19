@@ -13,6 +13,7 @@
 #if ExperimentalIO
 #if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
 @_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import _Concurrency
+public import _PlatformExecutorsCore
 
 // MARK: - TCP socket operations
 
