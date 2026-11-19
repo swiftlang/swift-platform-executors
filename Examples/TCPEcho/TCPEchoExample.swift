@@ -16,7 +16,7 @@
 
 /// Echoes messages between a client and a server over the loopback interface.
 @main
-@available(anyAppleOS 27.0, *)
+@available(SwiftStdlib 6.5, *)
 struct TCPEchoExample {
   /// The messages that the client sends.
   static let messages = ["Hello", "from", "the", "TCP", "echo", "example"]

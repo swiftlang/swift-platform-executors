@@ -17,7 +17,7 @@
 import BasicContainers
 
 // TODO: Replace with AsyncStreaming interfaces
-@available(anyAppleOS 27.0, *)
+@available(SwiftStdlib 6.5, *)
 extension File {
   /// Reads at most `length` bytes from the given offset.
   borrowing func read(length: Int, at offset: Int64) async throws(IOError) -> [UInt8] {
@@ -44,7 +44,7 @@ extension File {
   }
 }
 
-@available(anyAppleOS 27.0, *)
+@available(SwiftStdlib 6.5, *)
 extension File.Readable {
   /// Reads at most `length` bytes from the given offset.
   borrowing func read(length: Int, at offset: Int64) async throws(IOError) -> [UInt8] {

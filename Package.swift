@@ -18,6 +18,35 @@ swiftSettings.append(
   .unsafeFlags(["-Xfrontend", "-disable-availability-checking"], .when(traits: ["ExperimentalIO"]))
 )
 
+// Availability Macros
+
+// The `SwiftStdlib` availability macros of the Swift standard library, as in `utils/availability-macros.def` of
+// swiftlang/swift.
+let stdlibAvailability: [(version: String, osAvailability: String)] = [
+  ("6.2", "anyAppleOS 26.0"),
+  ("6.3", "anyAppleOS 26.4"),
+  ("6.4", "anyAppleOS 27.0"),
+  ("6.5", "anyAppleOS 9999"),
+]
+
+// The `SwiftPlatformExecutors` availability macros of the protocols and vocabulary types of the I/O interfaces, keyed
+// by the version of this package that first includes a declaration. Declarations that are not released yet use the
+// next version. In this package, each version maps to what the declarations need from the OS, such as `InlineArray`.
+// swiftlang/swift builds these declarations into the toolchain, and its
+// `utils/platform-executors-availability-macros.def` maps each version to the `SwiftStdlib` availability of the Swift
+// release that first includes it.
+let platformExecutorsAvailability: [(version: String, osAvailability: String)] = [
+  ("0.1.0", "anyAppleOS 26.0")
+]
+
+let availabilityMacros: [SwiftSetting] =
+  stdlibAvailability.map {
+    .enableExperimentalFeature("AvailabilityMacro=SwiftStdlib \($0.version):\($0.osAvailability)")
+  }
+  + platformExecutorsAvailability.map {
+    .enableExperimentalFeature("AvailabilityMacro=SwiftPlatformExecutors \($0.version):\($0.osAvailability)")
+  }
+
 let package = Package(
   name: "swift-platform-executors",
   products: [
@@ -172,6 +201,8 @@ where [.executable, .test, .regular].contains(
 
   // https://github.com/swiftlang/swift-evolution/blob/main/proposals/0458-strict-memory-safety.md
   settings.append(.strictMemorySafety())
+
+  settings.append(contentsOf: availabilityMacros)
 
   target.swiftSettings = settings
 }

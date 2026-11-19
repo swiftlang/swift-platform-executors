@@ -96,14 +96,14 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
     #endif
     /// This is the queue of enqueued jobs for the continuous clock.
     var continuousClockJobs: NonCopyablePriorityQueue<(ContinuousClock.Instant, UnownedJob)> = {
-      guard #available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *) else {
+      guard #available(SwiftStdlib 6.5, *) else {
         return .init(compare: compareJobsByContinuousClockInstantAndPriorityAndID(lhs:rhs:))
       }
       return .init(compare: compareJobsByContinuousClockInstantAndPriorityAndSequenceNumber(lhs:rhs:))
     }()
     /// This is the queue of enqueued jobs for the suspending clock.
     var suspendingClockJobs: NonCopyablePriorityQueue<(SuspendingClock.Instant, UnownedJob)> = {
-      guard #available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *) else {
+      guard #available(SwiftStdlib 6.5, *) else {
         return .init(compare: compareJobsBySuspendingClockInstantAndPriorityAndID(lhs:rhs:))
       }
       return .init(compare: compareJobsBySuspendingClockInstantAndPriorityAndSequenceNumber(lhs:rhs:))
@@ -844,7 +844,7 @@ package final class PThreadExecutor: TaskExecutor, @unchecked Sendable {
 }
 
 #if !canImport(Darwin)
-@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+@available(SwiftStdlib 6.5, *)
 extension PThreadExecutor: SchedulingExecutor {
   package var asSchedulingExecutor: (any SchedulingExecutor)? {
     return self

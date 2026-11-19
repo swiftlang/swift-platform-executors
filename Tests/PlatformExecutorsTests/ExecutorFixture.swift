@@ -32,7 +32,7 @@ private let maxDelayTolerance = 250  // ms
 // For the Thread Pool executor, we can return slightly early
 private let minDelayTolerance = 2  // ms
 
-@available(macOS 9999, *)
+@available(SwiftStdlib 6.5, *)
 func createJob(
   priority: TaskPriority,
   _ body: @escaping () -> Void
@@ -41,7 +41,7 @@ func createJob(
   return _swift_createJobForTestingOnly(priority: priority, body)
 }
 
-@available(macOS 9999, *)
+@available(SwiftStdlib 6.5, *)
 struct ExecutorFixture {
   static func test(executor: some Executor) async -> Bool {
     var result = true

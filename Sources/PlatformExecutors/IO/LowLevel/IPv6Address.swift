@@ -12,7 +12,7 @@
 
 #if ExperimentalIO
 /// An IPv6 address.
-@available(anyAppleOS 26.0, *)
+@available(SwiftPlatformExecutors 0.1.0, *)
 public struct IPv6Address: Sendable, Hashable {
   /// The number of bytes in an IPv6 address.
   public static var byteCount: Int { 16 }

@@ -12,7 +12,7 @@
 
 @_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import _Concurrency
 
-@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+@available(SwiftStdlib 6.5, *)
 extension ExecutorJob {
   var sequenceNumber: UInt64 {
     get {

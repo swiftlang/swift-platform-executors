@@ -13,7 +13,7 @@
 @_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import _Concurrency
 
 /// A platform-native task executor.
-@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+@available(SwiftStdlib 6.5, *)
 public final class PlatformSerialExecutor: SerialExecutor {
   #if os(Linux) || os(Android) || os(FreeBSD) || os(WASI)
   typealias Executor = PThreadSerialExecutor

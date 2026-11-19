@@ -13,7 +13,7 @@
 @_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import _Concurrency
 
 /// Compare UnownedJobs by priority, breaking ties with the sequence number.
-@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+@available(SwiftStdlib 6.5, *)
 func compareJobsByPriorityAndSequenceNumber(
   lhs: UnownedJob,
   rhs: UnownedJob
@@ -43,7 +43,7 @@ func compareJobsByPriorityAndID(
   return lhs.priority > rhs.priority
 }
 
-@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+@available(SwiftStdlib 6.5, *)
 func compareJobsByContinuousClockInstantAndPriorityAndSequenceNumber(
   lhs: (ContinuousClock.Instant, UnownedJob),
   rhs: (ContinuousClock.Instant, UnownedJob),
@@ -67,7 +67,7 @@ func compareJobsByContinuousClockInstantAndPriorityAndID(
   return compareJobsByPriorityAndID(lhs: lhs.1, rhs: rhs.1)
 }
 
-@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+@available(SwiftStdlib 6.5, *)
 func compareJobsBySuspendingClockInstantAndPriorityAndSequenceNumber(
   lhs: (SuspendingClock.Instant, UnownedJob),
   rhs: (SuspendingClock.Instant, UnownedJob),

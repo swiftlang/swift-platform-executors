@@ -12,7 +12,7 @@
 
 #if ExperimentalIO
 /// An IPv4 address.
-@available(anyAppleOS 26.0, *)
+@available(SwiftPlatformExecutors 0.1.0, *)
 public struct IPv4Address: Sendable, Hashable {
   /// The number of bytes in an IPv4 address.
   public static var byteCount: Int { 4 }

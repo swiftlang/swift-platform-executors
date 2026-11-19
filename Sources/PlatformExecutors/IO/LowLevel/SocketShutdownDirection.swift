@@ -12,6 +12,7 @@
 
 #if ExperimentalIO
 /// The direction of a socket that is shut down.
+@available(SwiftPlatformExecutors 0.1.0, *)
 public enum SocketShutdownDirection: Sendable, Hashable {
   /// Shuts down the read direction.
   ///

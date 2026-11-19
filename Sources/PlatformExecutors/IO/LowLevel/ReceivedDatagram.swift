@@ -12,7 +12,7 @@
 
 #if ExperimentalIO
 /// A datagram that a scheduler received into one of its buffers.
-@available(anyAppleOS 27.0, *)
+@available(SwiftPlatformExecutors 0.1.0, *)
 @frozen
 public struct ReceivedDatagram: ~Copyable, Sendable {
   /// The buffer with the bytes of the datagram, which has to be returned.

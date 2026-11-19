@@ -18,7 +18,7 @@
 ///
 /// A scheduler cancels an operation when the calling task is cancelled, and escalates the priority of an
 /// operation when the priority of the calling task is escalated, if the platform supports it.
-@available(anyAppleOS 27.0, *)
+@available(SwiftPlatformExecutors 0.1.0, *)
 public protocol OperationScheduler: AnyObject, Sendable {
   /// Leases out an empty buffer of the scheduler.
   ///
