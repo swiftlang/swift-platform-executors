@@ -11,6 +11,8 @@
 //===----------------------------------------------------------------------===//
 
 #if ExperimentalIO
+
+public import _PlatformExecutorsCore
 /// A connected TCP socket.
 ///
 /// A connection is created by connecting to a listening socket with ``connect(to:)`` or by accepting one

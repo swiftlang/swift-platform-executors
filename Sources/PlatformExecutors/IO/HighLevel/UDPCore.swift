@@ -11,6 +11,8 @@
 //===----------------------------------------------------------------------===//
 
 #if ExperimentalIO
+
+import _PlatformExecutorsCore
 /// What ``UDPSocket`` and ``UDPConnection`` share.
 @available(anyAppleOS 27.0, *)
 struct UDPCore: ~Copyable, Sendable {

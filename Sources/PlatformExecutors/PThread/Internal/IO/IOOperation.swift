@@ -12,6 +12,8 @@
 
 #if ExperimentalIO
 #if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin) || os(WASI)
+import _PlatformExecutorsCore
+
 #if canImport(Glibc)
 import Glibc
 #elseif canImport(Musl)
