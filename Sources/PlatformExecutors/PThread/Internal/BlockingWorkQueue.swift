@@ -13,6 +13,7 @@
 #if ExperimentalIO
 #if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
 @_spi(SplitContinuation) import _Concurrency
+import _PlatformExecutorsCore
 internal import BasicContainers
 internal import Synchronization
 

@@ -11,6 +11,8 @@
 //===----------------------------------------------------------------------===//
 
 #if ExperimentalIOUring && canImport(Glibc)
+
+import _PlatformExecutorsCore
 import Glibc
 import CPlatformExecutors
 import SystemPackage

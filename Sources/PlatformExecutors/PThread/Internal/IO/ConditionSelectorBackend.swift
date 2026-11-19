@@ -11,6 +11,8 @@
 //===----------------------------------------------------------------------===//
 
 #if os(WASI)
+
+import _PlatformExecutorsCore
 import CPlatformExecutors
 import WASILibc
 import wasi_pthread

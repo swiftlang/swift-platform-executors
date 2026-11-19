@@ -11,6 +11,8 @@
 //===----------------------------------------------------------------------===//
 
 #if ExperimentalIO
+
+public import _PlatformExecutorsCore
 /// Prefers the given operation scheduler for the resources created in the given operation.
 ///
 /// Resources resolve the operation scheduler that services them once when they are created and keep using

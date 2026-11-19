@@ -11,6 +11,8 @@
 //===----------------------------------------------------------------------===//
 
 #if ExperimentalIO
+
+public import _PlatformExecutorsCore
 /// A TCP socket that listens for incoming connections.
 ///
 /// A listener uniquely owns the underlying platform resource, so it cannot be copied. It must be closed

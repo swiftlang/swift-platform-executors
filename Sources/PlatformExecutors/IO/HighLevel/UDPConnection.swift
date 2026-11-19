@@ -11,6 +11,8 @@
 //===----------------------------------------------------------------------===//
 
 #if ExperimentalIO
+
+public import _PlatformExecutorsCore
 /// A UDP socket that exchanges datagrams with one peer.
 ///
 /// A connection is created by connecting to a peer with ``connect(to:)``, or by connecting a bound

@@ -11,6 +11,8 @@
 //===----------------------------------------------------------------------===//
 
 #if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin) || os(WASI)
+import _PlatformExecutorsCore
+
 #if !canImport(Darwin) && !canImport(Glibc) && !canImport(Musl) && !canImport(Android) && !os(WASI)
 #error("Unsupported platform")
 #endif

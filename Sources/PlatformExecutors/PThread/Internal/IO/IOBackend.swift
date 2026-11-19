@@ -11,6 +11,8 @@
 //===----------------------------------------------------------------------===//
 
 #if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin) || os(WASI)
+
+import _PlatformExecutorsCore
 /// The mechanism that a ``PThreadExecutor`` performs its I/O with.
 ///
 /// This connects the executor with the underlying platform. It allows the platform to use readiness or

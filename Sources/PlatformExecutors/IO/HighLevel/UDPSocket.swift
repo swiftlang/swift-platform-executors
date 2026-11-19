@@ -11,6 +11,8 @@
 //===----------------------------------------------------------------------===//
 
 #if ExperimentalIO
+
+public import _PlatformExecutorsCore
 /// A UDP socket that sends datagrams to, and receives datagrams from, any peer.
 ///
 /// A socket is created by binding it to a local address with ``bind(to:)``. To exchange datagrams with one
