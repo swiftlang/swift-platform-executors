@@ -14,7 +14,7 @@
 
 #if os(Windows)
 /// Provides a reasonable default executor factory for your platform.
-@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+@available(SwiftStdlib 6.5, *)
 @_spi(ExperimentalCustomExecutors) public struct PlatformExecutorFactory: ExecutorFactory {
   @_spi(ExperimentalCustomExecutors) public static let mainExecutor: any MainExecutor = Win32EventLoopExecutor(
     isMainExecutor: true
@@ -58,7 +58,7 @@
 }
 #elseif canImport(Darwin)
 /// Provides a reasonable default executor factory for your platform.
-@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+@available(SwiftStdlib 6.5, *)
 @_spi(ExperimentalCustomExecutors) public struct PlatformExecutorFactory: ExecutorFactory {
   @_spi(ExperimentalCustomExecutors) public static let mainExecutor: any MainExecutor = DispatchMainExecutor()
   public static let defaultExecutor: any TaskExecutor = DispatchGlobalTaskExecutor()
@@ -117,7 +117,7 @@ import Foundation
 /// The threads that perform blocking file operations for the I/O mechanisms that cannot wait for files are sized
 /// to the same number of threads as ``defaultExecutor``. This can be customized by setting the
 /// `SWIFT_PLATFORM_DEFAULT_EXECUTOR_BLOCKING_POOL_SIZE` environment variable.
-@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+@available(SwiftStdlib 6.5, *)
 @_spi(ExperimentalCustomExecutors) public struct PlatformExecutorFactory: ExecutorFactory {
   @_spi(ExperimentalCustomExecutors) public static let mainExecutor: any MainExecutor = PThreadMainExecutor()
   public static let defaultExecutor: any TaskExecutor = {
@@ -197,7 +197,7 @@ import WASILibc
 /// By default the ``defaultExecutor`` uses four threads and the size can be customized by
 /// setting the `SWIFT_PLATFORM_DEFAULT_EXECUTOR_POOL_SIZE` environment
 /// variable (in the host's WASI environment).
-@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+@available(SwiftStdlib 6.5, *)
 @_spi(ExperimentalCustomExecutors) public struct PlatformExecutorFactory: ExecutorFactory {
   @_spi(ExperimentalCustomExecutors) public static let mainExecutor: any MainExecutor = PThreadMainExecutor()
   public static let defaultExecutor: any TaskExecutor = {

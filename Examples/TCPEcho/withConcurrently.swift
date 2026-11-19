@@ -16,7 +16,7 @@
 /// This is only needed since task groups don't support `~Escapable` type capturing right now
 // TODO: Remove _semantics once https://github.com/swiftlang/swift/issues/93106 is fixed
 @_semantics("optimize.sil.specialize.generic.never")
-@available(anyAppleOS 27.0, *)
+@available(SwiftStdlib 6.5, *)
 nonisolated(nonsending) func withConcurrently<First: Sendable, Second: Sendable, Failure: Error>(
   _ first: sending () async throws(Failure) -> First,
   _ second: sending () async throws(Failure) -> Second
@@ -32,7 +32,7 @@ nonisolated(nonsending) func withConcurrently<First: Sendable, Second: Sendable,
   }
 }
 
-@available(anyAppleOS 27.0, *)
+@available(SwiftStdlib 6.5, *)
 private nonisolated(nonsending) func _withConcurrently<First: Sendable, Second: Sendable, Failure: Error>(
   _ first: inout (() async throws(Failure) -> First)?,
   _ second: inout (() async throws(Failure) -> Second)?

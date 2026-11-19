@@ -20,7 +20,7 @@ import Testing
 @Suite
 struct PThreadExecutorTests {
   @Test(arguments: PThreadIOBackend.tested)
-  @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+  @available(SwiftStdlib 6.5, *)
   func singleExecutor(ioBackend: PThreadIOBackend) async {
     await PThreadTaskExecutor
       .withExecutor(name: "Test", poolSize: 1, ioBackend: ioBackend) { executor in
@@ -33,7 +33,7 @@ struct PThreadExecutorTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+  @available(SwiftStdlib 6.5, *)
   func poolExecutor(ioBackend: PThreadIOBackend) async {
     await PThreadTaskExecutor.withExecutor(
       name: "Test",
@@ -49,7 +49,7 @@ struct PThreadExecutorTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+  @available(SwiftStdlib 6.5, *)
   func taskExecutorStackSize(ioBackend: PThreadIOBackend) async {
     let stackSize = 64 << 20
     await PThreadTaskExecutor.withExecutor(
@@ -69,7 +69,7 @@ struct PThreadExecutorTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+  @available(SwiftStdlib 6.5, *)
   func serialExecutorStackSize(ioBackend: PThreadIOBackend) async {
     let stackSize = 64 << 20
     await PThreadSerialExecutor.withExecutor(
@@ -83,7 +83,7 @@ struct PThreadExecutorTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+  @available(SwiftStdlib 6.5, *)
   func stackSizeIsRoundedUp(ioBackend: PThreadIOBackend) async {
     // Not a page multiple and below the 128 KiB floor, which is enforced
     // because PTHREAD_STACK_MIN is too small to run Swift code on x86_64 glibc
@@ -101,7 +101,7 @@ struct PThreadExecutorTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+  @available(SwiftStdlib 6.5, *)
   func test(ioBackend: PThreadIOBackend) async throws {
     await PThreadExecutor.withExecutor(name: "Test", ioBackend: ioBackend) { executor in
       #expect(await ExecutorFixture.test(executor: executor))
@@ -115,7 +115,7 @@ struct PThreadExecutorTests {
   }
 
   @Test(.timeLimit(.minutes(1)), arguments: PThreadIOBackend.tested)
-  @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+  @available(SwiftStdlib 6.5, *)
   func shortSleepsWhoseDeadlinePassesWhileTheExecutorPreparesToWait(ioBackend: PThreadIOBackend) async {
     await PThreadTaskExecutor.withExecutor(name: "Test", poolSize: 1, ioBackend: ioBackend) { executor in
       await withTaskExecutorPreference(executor) {
@@ -140,13 +140,13 @@ struct PThreadExecutorTests {
 
   /// A sleep with an earlier deadline must wake an executor that already waits for a later one.
   @Test(.timeLimit(.minutes(1)), arguments: PThreadIOBackend.tested)
-  @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+  @available(SwiftStdlib 6.5, *)
   func anEarlierSleepFiresWhileALaterOneIsPending(ioBackend: PThreadIOBackend) async {
     await Self.anEarlierSleepFiresWhileALaterOneIsPending(clock: ContinuousClock(), ioBackend: ioBackend)
     await Self.anEarlierSleepFiresWhileALaterOneIsPending(clock: SuspendingClock(), ioBackend: ioBackend)
   }
 
-  @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+  @available(SwiftStdlib 6.5, *)
   private static func anEarlierSleepFiresWhileALaterOneIsPending<C: Clock>(
     clock: C,
     ioBackend: PThreadIOBackend
@@ -169,7 +169,7 @@ struct PThreadExecutorTests {
 
   /// Once a timer fired, the next sleeps must arm it again.
   @Test(.timeLimit(.minutes(1)), arguments: PThreadIOBackend.tested)
-  @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+  @available(SwiftStdlib 6.5, *)
   func sleepsOneAfterAnotherEachFire(ioBackend: PThreadIOBackend) async {
     await PThreadTaskExecutor.withExecutor(name: "Test", poolSize: 1, ioBackend: ioBackend) { executor in
       await withTaskExecutorPreference(executor) {
@@ -182,7 +182,7 @@ struct PThreadExecutorTests {
   }
 
   @Test
-  @available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+  @available(SwiftStdlib 6.5, *)
   func mainExecutor() async throws {
     let mainExecutor = PThreadMainExecutor()
     #expect(await ExecutorFixture.test(executor: mainExecutor))
@@ -192,7 +192,7 @@ struct PThreadExecutorTests {
   }
 }
 
-@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+@available(SwiftStdlib 6.5, *)
 private actor StackSizeActor {
   let executor: PThreadSerialExecutor
 

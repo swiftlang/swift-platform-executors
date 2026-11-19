@@ -12,7 +12,7 @@
 
 #if ExperimentalIO
 /// A scheduler that can perform UDP socket operations.
-@available(anyAppleOS 27.0, *)
+@available(SwiftStdlib 6.5, *)
 public protocol UDPSocketOperationScheduler<UDPSocket>: OperationScheduler {
   // TODO: Make the handle `~Copyable` again, see `TCPSocketOperationScheduler`.
 
@@ -119,7 +119,7 @@ public protocol UDPSocketOperationScheduler<UDPSocket>: OperationScheduler {
   func remoteAddress(of socket: borrowing UDPSocket) throws(IOError) -> SocketAddress
 }
 
-@available(anyAppleOS 27.0, *)
+@available(SwiftStdlib 6.5, *)
 extension UDPSocketOperationScheduler {
   /// Receives one datagram and hands its bytes and the address of the sender to the closure.
   ///

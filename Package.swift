@@ -18,6 +18,20 @@ swiftSettings.append(
   .unsafeFlags(["-Xfrontend", "-disable-availability-checking"], .when(traits: ["ExperimentalIO"]))
 )
 
+// Availability Macros
+
+// The `SwiftStdlib` availability macros of the Swift standard library, as in `utils/availability-macros.def` of
+// swiftlang/swift.
+let stdlibAvailability: [(version: String, osAvailability: String)] = [
+  ("6.2", "anyAppleOS 26.0"),
+  ("6.3", "anyAppleOS 26.4"),
+  ("6.4", "anyAppleOS 27.0"),
+  ("6.5", "anyAppleOS 9999"),
+]
+let availabilityMacros: [SwiftSetting] = stdlibAvailability.map {
+  .enableExperimentalFeature("AvailabilityMacro=SwiftStdlib \($0.version):\($0.osAvailability)")
+}
+
 let package = Package(
   name: "swift-platform-executors",
   products: [
@@ -172,6 +186,8 @@ where [.executable, .test, .regular].contains(
 
   // https://github.com/swiftlang/swift-evolution/blob/main/proposals/0458-strict-memory-safety.md
   settings.append(.strictMemorySafety())
+
+  settings.append(contentsOf: availabilityMacros)
 
   target.swiftSettings = settings
 }
