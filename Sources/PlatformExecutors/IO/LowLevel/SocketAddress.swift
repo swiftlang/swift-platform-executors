@@ -12,7 +12,7 @@
 
 #if ExperimentalIO
 /// The address of a socket endpoint.
-@available(anyAppleOS 26.0, *)
+@available(SwiftStdlib 6.5, *)
 public enum SocketAddress: Sendable, Hashable {
   /// An IPv4 socket address.
   public struct V4: Sendable, Hashable {

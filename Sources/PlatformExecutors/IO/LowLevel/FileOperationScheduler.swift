@@ -12,7 +12,7 @@
 
 #if ExperimentalIO
 /// A scheduler that can perform file operations.
-@available(anyAppleOS 27.0, *)
+@available(SwiftStdlib 6.5, *)
 public protocol FileOperationScheduler<FileHandle>: OperationScheduler {
   /// The handle identifying an open file of this scheduler.
   // TODO: Make the handle `~Copyable` again
@@ -75,7 +75,7 @@ public protocol FileOperationScheduler<FileHandle>: OperationScheduler {
   func close(file: consuming FileHandle) async throws(IOError)
 }
 
-@available(anyAppleOS 27.0, *)
+@available(SwiftStdlib 6.5, *)
 extension FileOperationScheduler {
   /// Reads once from the given offset of a file and hands the bytes that were read to the closure.
   ///
@@ -131,7 +131,7 @@ extension FileOperationScheduler {
 ///
 /// The high-level file types turn their open options into this, so a scheduler only deals with one
 /// description.
-@available(anyAppleOS 27.0, *)
+@available(SwiftStdlib 6.5, *)
 public struct FileOpenConfiguration: Hashable, Sendable {
   /// How the file is accessed.
   public enum AccessMode: Hashable, Sendable {

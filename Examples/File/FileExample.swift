@@ -22,7 +22,7 @@ import Darwin
 
 /// Writes a file, modifies it, and reads it back in several ways.
 @main
-@available(anyAppleOS 27.0, *)
+@available(SwiftStdlib 6.5, *)
 struct FileExample {
   static func main() async throws {
     let path = "/tmp/file-example-\(getpid()).txt"
