@@ -14,7 +14,11 @@
 #if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
 @_spi(SplitContinuation) import _Concurrency
 import _PlatformExecutorsCore
+#if canImport(BasicContainers)
 internal import BasicContainers
+#elseif canImport(_PlatformExecutorsCollections)
+internal import _PlatformExecutorsCollections
+#endif
 internal import Synchronization
 
 /// A pool of threads that run blocking syscalls for tasks that wait for them.

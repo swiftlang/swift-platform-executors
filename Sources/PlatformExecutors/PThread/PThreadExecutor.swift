@@ -36,8 +36,12 @@ import Dispatch
 #endif
 
 #if ExperimentalIO && !os(WASI)
+#if canImport(BasicContainers)
 internal import BasicContainers
 internal import DequeModule
+#elseif canImport(_PlatformExecutorsCollections)
+internal import _PlatformExecutorsCollections
+#endif
 
 #if canImport(Glibc)
 import Glibc

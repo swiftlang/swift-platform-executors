@@ -11,7 +11,11 @@
 //===----------------------------------------------------------------------===//
 
 @_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import _Concurrency
+#if canImport(BasicContainers)
 internal import BasicContainers
+#elseif canImport(_PlatformExecutorsCollections)
+internal import _PlatformExecutorsCollections
+#endif
 
 /// The jobs that wait to run on an executor
 ///

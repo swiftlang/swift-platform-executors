@@ -34,7 +34,11 @@ import Musl
 import Android
 #endif
 import CPlatformExecutors
+#if canImport(BasicContainers)
 internal import BasicContainers
+#elseif canImport(_PlatformExecutorsCollections)
+internal import _PlatformExecutorsCollections
+#endif
 
 /// An I/O mechanism that uses epoll for eventing.
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)

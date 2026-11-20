@@ -102,11 +102,24 @@
 }
 
 #elseif os(Linux) || os(Android) || os(FreeBSD)
-#if canImport(FoundationEssentials)
-import FoundationEssentials
-#else
-import Foundation
+#if canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#elseif canImport(Android)
+import Android
 #endif
+
+/// The value of the environment variable `name` as an `Int`, or `nil` if it isn't set or isn't a number.
+///
+/// This reads the environment with `getenv` and not with Foundation's `ProcessInfo`, because the module is also built
+/// as part of the Swift toolchain, before Foundation.
+private func environmentInt(_ name: String) -> Int? {
+  guard let value = unsafe getenv(name) else {
+    return nil
+  }
+  return Int(unsafe String(cString: value))
+}
 
 /// Provides a reasonable default executor factory for your platform.
 ///
@@ -121,11 +134,8 @@ import Foundation
 @_spi(ExperimentalCustomExecutors) public struct PlatformExecutorFactory: ExecutorFactory {
   @_spi(ExperimentalCustomExecutors) public static let mainExecutor: any MainExecutor = PThreadMainExecutor()
   public static let defaultExecutor: any TaskExecutor = {
-    let environment = ProcessInfo.processInfo.environment
-    let coreCount =
-      environment["SWIFT_PLATFORM_DEFAULT_EXECUTOR_POOL_SIZE"].flatMap { Int($0) } ?? SystemCoreCount.coreCount
-    let blockingPoolSize = environment["SWIFT_PLATFORM_DEFAULT_EXECUTOR_BLOCKING_POOL_SIZE"]
-      .flatMap { Int($0) }
+    let coreCount = environmentInt("SWIFT_PLATFORM_DEFAULT_EXECUTOR_POOL_SIZE") ?? SystemCoreCount.coreCount
+    let blockingPoolSize = environmentInt("SWIFT_PLATFORM_DEFAULT_EXECUTOR_BLOCKING_POOL_SIZE")
       .flatMap { $0 > 0 ? $0 : nil }
     return unsafe PThreadTaskExecutor(
       name: "global",

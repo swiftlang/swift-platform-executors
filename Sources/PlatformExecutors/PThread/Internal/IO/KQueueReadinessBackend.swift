@@ -27,7 +27,11 @@
 
 import _PlatformExecutorsCore
 import Darwin
+#if canImport(BasicContainers)
 internal import BasicContainers
+#elseif canImport(_PlatformExecutorsCollections)
+internal import _PlatformExecutorsCollections
+#endif
 
 private let sysKevent = unsafe kevent
 
