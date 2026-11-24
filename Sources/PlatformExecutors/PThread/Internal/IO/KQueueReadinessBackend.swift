@@ -27,9 +27,7 @@
 
 import _PlatformExecutorsCore
 import Darwin
-#if ExperimentalIO
 internal import BasicContainers
-#endif
 
 private let sysKevent = unsafe kevent
 
@@ -432,15 +430,15 @@ extension KQueueReadinessBackend: IOBackend {
   mutating func wait(strategy: IOWaitStrategy) throws {
     let timeout = self.prepareWait(strategy: strategy)
     let kqueueFD = self.kqueueFD
-    try withTemporaryAllocation(of: Darwin.kevent.self, capacity: Self.maxEvents) { events in
-      try self.pendingChanges.withUnsafeBufferPointer { changelist in
-        try Self.waitForEvents(kqueueFD: kqueueFD, changelist: changelist, timeout: timeout, into: &events)
+    try unsafe withTemporaryAllocation(of: Darwin.kevent.self, capacity: Self.maxEvents) { events in
+      try unsafe self.pendingChanges.span.withUnsafeBufferPointer { changelist in
+        try unsafe Self.waitForEvents(kqueueFD: kqueueFD, changelist: changelist, timeout: timeout, into: &events)
       }
       // The kernel has taken the changes, so we can clear the array.
-      self.pendingChanges.removeAll()
+      unsafe self.pendingChanges.removeAll()
 
-      for index in events.indices {
-        _ = self.process(events[index])
+      for index in unsafe events.indices {
+        _ = unsafe self.process(events[index])
       }
     }
   }
