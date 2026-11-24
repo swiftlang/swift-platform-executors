@@ -97,7 +97,7 @@ public struct LeasedBuffer: ~Copyable, @unchecked Sendable {
   }
 
   /// A lease without any memory.
-  package static func empty() -> LeasedBuffer {
+  internal static func empty() -> LeasedBuffer {
     unsafe LeasedBuffer(
       adopting: .init(start: nil, count: 0),
       initializedCount: 0,
