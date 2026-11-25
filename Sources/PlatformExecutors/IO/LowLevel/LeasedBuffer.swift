@@ -114,7 +114,8 @@ public struct LeasedBuffer: ~Copyable, @unchecked Sendable {
   ) -> Return {
     var span = unsafe OutputRawSpan(buffer: self.memory, initializedCount: self.initializedCount)
     let result = body(&span)
-    self.initializedCount = span.byteCount
+    // This traps if the closure replaced the span with one over other memory.
+    self.initializedCount = unsafe span.finalize(for: self.memory)
     return result
   }
 
@@ -127,7 +128,8 @@ public struct LeasedBuffer: ~Copyable, @unchecked Sendable {
   ) async -> Return {
     var span = unsafe OutputRawSpan(buffer: self.memory, initializedCount: self.initializedCount)
     let result = await body(&span)
-    self.initializedCount = span.byteCount
+    // This traps if the closure replaced the span with one over other memory.
+    self.initializedCount = unsafe span.finalize(for: self.memory)
     return result
   }
 
