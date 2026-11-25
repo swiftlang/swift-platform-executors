@@ -33,6 +33,38 @@ int CPlatformExecutors_accept4(int socket, struct sockaddr *address, socklen_t *
 #include <dlfcn.h>
 #endif
 
+#if !defined(_WIN32) && !defined(__wasi__)
+#include <stdbool.h>
+#include <sys/socket.h>
+#include <sys/uio.h>
+
+// A message header with room for the description of one buffer. Swift fills it with
+// `CPlatformExecutors_datagram_message_init` instead of setting the members of `struct iovec`.
+typedef struct {
+  struct msghdr header;
+  struct iovec vector;
+} CPlatformExecutors_DatagramMessage;
+
+// Describes the buffer, if `describes_buffer` is set, and the address in the header of the message,
+// and returns the header.
+static inline struct msghdr *CPlatformExecutors_datagram_message_init(
+  CPlatformExecutors_DatagramMessage *message,
+  void *bytes,
+  size_t count,
+  bool describes_buffer,
+  void *address,
+  socklen_t address_length
+) {
+  message->vector.iov_base = bytes;
+  message->vector.iov_len = count;
+  message->header.msg_name = address;
+  message->header.msg_namelen = address_length;
+  message->header.msg_iov = describes_buffer ? &message->vector : NULL;
+  message->header.msg_iovlen = describes_buffer ? 1 : 0;
+  return &message->header;
+}
+#endif
+
 #ifdef __wasi__
 // wasm32-unknown-wasip1-threads: wasi-libc maps pthread_create onto
 // wasi_thread_spawn.
