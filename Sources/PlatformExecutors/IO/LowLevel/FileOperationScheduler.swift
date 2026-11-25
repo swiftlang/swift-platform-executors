@@ -53,7 +53,9 @@ public protocol FileOperationScheduler<FileHandle>: OperationScheduler {
   ///   - file: The file to write to.
   ///   - buffer: The buffer to write from.
   ///   - offset: The offset in the file to write to.
-  /// - Returns: The number of bytes written. This can be less than the number of bytes in the buffer.
+  /// - Returns: The number of bytes written, which is at least one if the buffer isn't empty. This can be less
+  ///   than the number of bytes in the buffer.
+  /// - Throws: An error if no byte of a buffer that isn't empty could be written.
   func write(
     file: borrowing FileHandle,
     from buffer: RawSpan,
@@ -116,7 +118,9 @@ extension FileOperationScheduler {
       var written = 0
       while written < buffer.count {
         let bytes = buffer.bytes.extracting(droppingFirst: written)
-        written += try await self.write(file: file, from: bytes, at: offset + Int64(written))
+        let count = try await self.write(file: file, from: bytes, at: offset + Int64(written))
+        assert(count > 0, "The scheduler wrote no byte of a buffer that isn't empty")
+        written += count
       }
     } catch {
       buffer.return()
