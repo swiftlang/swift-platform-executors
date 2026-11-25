@@ -205,9 +205,7 @@ public struct TCPConnection: ~Copyable, Sendable {
     on scheduler: Scheduler
   ) async throws(IOError) {
     let connection = connection as! Scheduler.TCPConnection
-    try await withTaskCancellationShield { () async throws(IOError) -> Void in
-      try await scheduler.close(connection: connection)
-    }
+    try await scheduler.close(connection: connection)
   }
 
   /// Returns the handle of the socket as the handle type of the given scheduler.

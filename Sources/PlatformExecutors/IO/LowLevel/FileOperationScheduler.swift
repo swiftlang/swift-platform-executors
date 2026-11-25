@@ -73,6 +73,8 @@ public protocol FileOperationScheduler<FileHandle>: OperationScheduler {
 
   /// Closes a file.
   ///
+  /// The scheduler must close the handle even if the calling task is cancelled, and releases it even if closing throws.
+  ///
   /// - Parameter file: The file to close.
   func close(file: consuming FileHandle) async throws(IOError)
 }

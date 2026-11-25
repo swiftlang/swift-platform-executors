@@ -516,9 +516,7 @@ struct FileCore: ~Copyable, Sendable {
     on scheduler: Scheduler
   ) async throws(IOError) {
     let file = file as! Scheduler.FileHandle
-    try await withTaskCancellationShield { () async throws(IOError) -> Void in
-      try await scheduler.close(file: file)
-    }
+    try await scheduler.close(file: file)
   }
 
   /// Returns the handle of the file as the handle type of the given scheduler.

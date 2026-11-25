@@ -213,9 +213,7 @@ struct UDPCore: ~Copyable, Sendable {
     on scheduler: Scheduler
   ) async throws(IOError) {
     let socket = socket as! Scheduler.UDPSocket
-    try await withTaskCancellationShield { () async throws(IOError) -> Void in
-      try await scheduler.close(socket: socket)
-    }
+    try await scheduler.close(socket: socket)
   }
 
   /// Returns the handle of the socket as the handle type of the given scheduler.

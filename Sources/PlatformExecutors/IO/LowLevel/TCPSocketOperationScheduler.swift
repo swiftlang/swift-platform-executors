@@ -97,10 +97,14 @@ public protocol TCPSocketOperationScheduler<TCPListener, TCPConnection>: Operati
 
   /// Closes a socket.
   ///
+  /// The scheduler must close the handle even if the calling task is cancelled, and releases it even if closing throws.
+  ///
   /// - Parameter connection: The socket to close.
   func close(connection: consuming TCPConnection) async throws(IOError)
 
   /// Closes a listening socket.
+  ///
+  /// The scheduler must close the handle even if the calling task is cancelled, and releases it even if closing throws.
   ///
   /// - Parameter listener: The listening socket to close.
   func close(listener: consuming TCPListener) async throws(IOError)
