@@ -73,11 +73,12 @@ extension PThreadExecutor {
     at offset: Int64
   ) async throws(IOError) -> Int {
     let bytes = buffer.withUnsafeBytes { unsafe $0 }
-    return try await unsafe self.perform(
+    let count = try await unsafe self.perform(
       .writeFile(file: file.fileDescriptor, buffer: bytes, offset: offset)
     ) { continuation in
       .byteCount(continuation)
     }
+    return try IOError.checkingWriteProgress(count, bufferCount: bytes.count)
   }
 
   package func closeFile(_ file: consuming PThreadFile) async throws(IOError) {

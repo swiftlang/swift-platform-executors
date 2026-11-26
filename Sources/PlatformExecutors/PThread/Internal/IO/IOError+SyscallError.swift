@@ -34,6 +34,24 @@ extension IOError {
   init(errnoCode: CInt) {
     self.init(code: .platform(errnoCode))
   }
+
+  /// Returns the number of bytes that a write transferred, or throws ``IOError/Code/writeZero`` if it transferred
+  /// none of a buffer that isn't empty.
+  ///
+  /// The operation schedulers guarantee that a write makes progress, because the loops that write all bytes rely on
+  /// it. POSIX only specifies that `write` doesn't return zero for files, pipes and sockets, and historically
+  /// `O_NDELAY` made writes return zero instead of failing with `EAGAIN`.
+  ///
+  /// - Parameters:
+  ///   - count: The number of bytes that the write transferred.
+  ///   - bufferCount: The number of bytes in the buffer of the write.
+  @inline(__always)
+  static func checkingWriteProgress(_ count: Int, bufferCount: Int) throws(IOError) -> Int {
+    guard count > 0 || bufferCount == 0 else {
+      throw IOError(code: .writeZero)
+    }
+    return count
+  }
 }
 
 /// Performs a syscall, retrying it while it is interrupted, and reports a failure as an ``IOError``.

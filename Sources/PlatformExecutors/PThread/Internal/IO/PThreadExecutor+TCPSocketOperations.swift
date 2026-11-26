@@ -104,9 +104,11 @@ extension PThreadExecutor: TCPSocketOperationScheduler {
 
   package func write(connection: borrowing TCPConnection, from buffer: RawSpan) async throws(IOError) -> Int {
     let bytes = buffer.withUnsafeBytes { unsafe $0 }
-    return try await unsafe self.perform(.write(socket: connection.fileDescriptor, buffer: bytes)) { continuation in
+    let count = try await unsafe self.perform(.write(socket: connection.fileDescriptor, buffer: bytes)) {
+      continuation in
       .byteCount(continuation)
     }
+    return try IOError.checkingWriteProgress(count, bufferCount: bytes.count)
   }
 
   // TODO: Implement the operations that lease buffers.

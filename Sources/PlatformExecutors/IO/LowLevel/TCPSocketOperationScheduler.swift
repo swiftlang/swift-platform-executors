@@ -72,7 +72,7 @@ public protocol TCPSocketOperationScheduler<TCPListener, TCPConnection>: Operati
   ///   - buffer: The buffer to write from.
   /// - Returns: The number of bytes written, which is at least one if the buffer isn't empty. This can be less
   ///   than the number of bytes in the buffer.
-  /// - Throws: An error if no byte of a buffer that isn't empty could be written.
+  /// - Throws: ``IOError/Code/writeZero`` if no byte of a buffer that isn't empty could be written.
   func write(connection: borrowing TCPConnection, from buffer: RawSpan) async throws(IOError) -> Int
 
   /// Reads once from a socket into a buffer that the scheduler provides.
