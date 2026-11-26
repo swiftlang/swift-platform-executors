@@ -32,6 +32,12 @@ private let maxDelayTolerance = 250  // ms
 // For the Thread Pool executor, we can return slightly early
 private let minDelayTolerance = 2  // ms
 
+// The order checks let a job run before another job whose deadline came at most
+// this much earlier. The nominal deadlines are at least 15 ms apart, so this only
+// matters when a pause in the enqueuing loop pushed two deadlines together, and
+// timer jitter between the threads of a pool can then swap them.
+private let orderingSlack = 10  // ms
+
 @available(macOS 9999, *)
 func createJob(
   priority: TaskPriority,
@@ -180,38 +186,107 @@ struct ExecutorFixture {
     }
   }
 
+  /// A scheduled job that ran, as the scheduling tests' order checks see it.
+  private struct ScheduledRun<Instant: InstantProtocol> {
+    /// The job's nominal delay in milliseconds, which names it in messages.
+    var delay: Int
+    /// The deadline the executor orders the job by lies between these two
+    /// instants. It's fixed during the `enqueue` call, and a job enqueued after
+    /// its target may be ordered by its target or as due once the executor has it.
+    var earliestDeadline: Instant
+    var latestDeadline: Instant
+    /// When the `enqueue` call returned. The executor may have had the job earlier.
+    var enqueueReturned: Instant
+    var ran: Instant
+  }
+
+  /// Describes the first pair of jobs that ran out of order, or returns `nil`.
+  ///
+  /// A job must not run while a job with an earlier deadline is waiting. A pause
+  /// in the enqueuing loop (a preempted thread, or a sanitizer printing a report,
+  /// possibly inside `enqueue`) delays the later enqueues, and whether the jobs
+  /// that come due during the pause run on time or only after the loop depends on
+  /// whether the loop runs on the executor's own thread. So the check doesn't
+  /// predict one order. It only rejects orders a correct executor can't produce:
+  /// the other job's deadline came first by more than `slack`, and its `enqueue`
+  /// call had returned more than `slack` before the first job ran.
+  ///
+  /// - Parameter runs: The jobs in the order they ran.
+  private static func orderViolation<Instant: InstantProtocol>(
+    _ runs: [ScheduledRun<Instant>],
+    slack: Instant.Duration
+  ) -> String? {
+    for (index, first) in runs.enumerated() {
+      for second in runs[(index + 1)...] {
+        let secondWasDueFirst = second.latestDeadline.advanced(by: slack) < first.earliestDeadline
+        let secondWasWaiting = second.enqueueReturned.advanced(by: slack) < first.ran
+        if secondWasDueFirst && secondWasWaiting {
+          return "the \(second.delay) ms job (due by \(second.latestDeadline)) ran at \(second.ran), "
+            + "after the \(first.delay) ms job (due no earlier than \(first.earliestDeadline)) ran at \(first.ran)"
+        }
+      }
+    }
+    return nil
+  }
+
+  /// Describes the first `enqueue` call that blocked its caller for longer than
+  /// `limit`, or returns `nil`.
+  ///
+  /// The order and lateness checks allow for a pause inside `enqueue`, so without
+  /// this bound an executor whose `enqueue` sleeps until the deadline would pass.
+  private static func slowEnqueue<Instant: InstantProtocol>(
+    _ calls: [(delay: Int, start: Instant, returned: Instant)],
+    limit: Instant.Duration
+  ) -> String? {
+    for call in calls where call.start.advanced(by: limit) < call.returned {
+      return "enqueueing the \(call.delay) ms job took \(call.start.duration(to: call.returned))"
+    }
+    return nil
+  }
+
   static func test<C: Clock, E: SchedulingExecutor>(
     schedulingExecutor: E,
     clock: C
   ) async -> Bool {
     print("\no SchedulingExecutor (\(clock))")
+    let slack = Duration.milliseconds(orderingSlack) as! C.Duration
+    let enqueueLimit = Duration.milliseconds(maxDelayTolerance) as! C.Duration
 
     print("  - Delays")
     let delays = [15, 30, 100, 250, 500, 1000]
-    let delayOrder = Mutex<[Int]>([])
-    let actualDelays = Mutex<[C.Duration]>([])
-    let start = clock.now
+    // The jobs in the order they ran, and when each ran.
+    let delayedRuns = Mutex<[(delay: Int, ran: C.Instant)]>([])
+    // `enqueue(_:after:)` counts each delay from the moment that job is enqueued,
+    // so each job's deadline and delay are measured from its own `enqueue` call.
+    let delayEnqueueStarts = Mutex<[Int: C.Instant]>([:])
+    let delayEnqueueReturns = Mutex<[Int: C.Instant]>([:])
 
     await withCheckedContinuation { continuation in
       let runLoopExecutor = schedulingExecutor as? (any RunLoopExecutor)
 
       for delay in delays.reversed() {
         let job = createJob(priority: .medium) {
-          let actualDelay = start.duration(to: clock.now)
+          let ran = clock.now
+          let actualDelay = delayEnqueueStarts.withLock { $0[delay]! }.duration(to: ran)
           print("    + Delayed job (\(delay) ms, actual \(actualDelay))")
-          delayOrder.withLock {
-            $0.append(delay)
-          }
-          actualDelays.withLock {
-            $0.append(actualDelay)
+          delayedRuns.withLock {
+            $0.append((delay, ran))
           }
         }
         let theDelay = Duration.milliseconds(delay) as! C.Duration
+        // Taken before `enqueue`, so the job can't run before it's recorded, and
+        // the measured delay can only come out slightly long, never short.
+        delayEnqueueStarts.withLock {
+          $0[delay] = clock.now
+        }
         schedulingExecutor.enqueue(
           job,
           after: theDelay,
           clock: clock
         )
+        delayEnqueueReturns.withLock {
+          $0[delay] = clock.now
+        }
       }
       let stopJob = createJob(priority: .low) {
         print("    + Stopping")
@@ -233,16 +308,36 @@ struct ExecutorFixture {
       }
     }
 
-    let result = delayOrder.withLock {
-      if $0 != delays {
-        print("  * FAILED (\($0))")
+    let result = delayedRuns.withLock { ranInOrder in
+      let order = ranInOrder.map(\.delay)
+      if order.sorted() != delays {
+        let missing = Set(delays).subtracting(order).sorted()
+        print("  * FAILED (\(order)\(missing.isEmpty ? "" : ", missing \(missing)"))")
         return false
       }
-      for (ndx, delay) in delays.enumerated() {
-        let actualDelay =
-          (actualDelays.withLock {
-            return $0[ndx]
-          }) as! Duration
+      let starts = delayEnqueueStarts.withLock { $0 }
+      let returns = delayEnqueueReturns.withLock { $0 }
+      let calls = delays.map { (delay: $0, start: starts[$0]!, returned: returns[$0]!) }
+      if let failure = Self.slowEnqueue(calls, limit: enqueueLimit) {
+        print("  * FAILED (\(failure))")
+        return false
+      }
+      let runs = ranInOrder.map { run in
+        let nominal = Duration.milliseconds(run.delay) as! C.Duration
+        return ScheduledRun(
+          delay: run.delay,
+          earliestDeadline: starts[run.delay]!.advanced(by: nominal),
+          latestDeadline: returns[run.delay]!.advanced(by: nominal),
+          enqueueReturned: returns[run.delay]!,
+          ran: run.ran
+        )
+      }
+      if let violation = Self.orderViolation(runs, slack: slack) {
+        print("  * FAILED (\(order): \(violation))")
+        return false
+      }
+      for (delay, ran) in ranInOrder.sorted(by: { $0.delay < $1.delay }) {
+        let actualDelay = starts[delay]!.duration(to: ran) as! Duration
 
         // Must not return before the requested delay
         let minDelay: Duration = .milliseconds(delay)
@@ -284,28 +379,37 @@ struct ExecutorFixture {
     let targets = delays.map {
       baseTime.advanced(by: Duration.milliseconds($0) as! C.Duration)
     }
-    let actualTimes = Mutex<[C.Instant]>([])
-    let timeOrder = Mutex<[C.Instant]>([])
+    // The jobs, by index into `targets`, in the order they ran, and when each ran.
+    let targetedRuns = Mutex<[(ndx: Int, ran: C.Instant)]>([])
+    // A pause in the enqueuing loop can let a target pass before its job is
+    // enqueued. The executor may order such a job by its target, or run it only
+    // after jobs it already took, but no later than once `enqueue` returns, so
+    // the checks bound its deadline by the target and that return.
+    let targetEnqueueStarts = Mutex<[Int: C.Instant]>([:])
+    let targetEnqueueReturns = Mutex<[Int: C.Instant]>([:])
 
     await withCheckedContinuation { continuation in
       let runLoopExecutor = schedulingExecutor as? (any RunLoopExecutor)
 
-      for target in targets.reversed() {
+      for (ndx, target) in targets.enumerated().reversed() {
         let job = createJob(priority: .medium) {
           let actualTime = clock.now
           print("    + Targeted job (target \(target), actual \(actualTime))")
-          timeOrder.withLock {
-            $0.append(target)
+          targetedRuns.withLock {
+            $0.append((ndx, actualTime))
           }
-          actualTimes.withLock {
-            $0.append(actualTime)
-          }
+        }
+        targetEnqueueStarts.withLock {
+          $0[ndx] = clock.now
         }
         schedulingExecutor.enqueue(
           job,
           at: target,
           clock: clock
         )
+        targetEnqueueReturns.withLock {
+          $0[ndx] = clock.now
+        }
       }
       let stopJob = createJob(priority: .low) {
         print("    + Stopping")
@@ -327,24 +431,49 @@ struct ExecutorFixture {
       }
     }
 
-    let result2 = timeOrder.withLock {
-      if $0 != targets {
-        print("  * FAILED (\($0))")
+    let result2 = targetedRuns.withLock { ranInOrder in
+      let order = ranInOrder.map { delays[$0.ndx] }
+      if order.sorted() != delays {
+        let missing = Set(delays).subtracting(order).sorted()
+        print("  * FAILED (\(order)\(missing.isEmpty ? "" : ", missing \(missing)"))")
         return false
       }
-      for (ndx, target) in targets.enumerated() {
-        let actualTime = actualTimes.withLock { return $0[ndx] }
+      let starts = targetEnqueueStarts.withLock { $0 }
+      let returns = targetEnqueueReturns.withLock { $0 }
+      let calls = targets.indices.map { (delay: delays[$0], start: starts[$0]!, returned: returns[$0]!) }
+      if let failure = Self.slowEnqueue(calls, limit: enqueueLimit) {
+        print("  * FAILED (\(failure))")
+        return false
+      }
+      let runs = ranInOrder.map { run in
+        ScheduledRun(
+          delay: delays[run.ndx],
+          earliestDeadline: targets[run.ndx],
+          latestDeadline: max(targets[run.ndx], returns[run.ndx]!),
+          enqueueReturned: returns[run.ndx]!,
+          ran: run.ran
+        )
+      }
+      if let violation = Self.orderViolation(runs, slack: slack) {
+        print("  * FAILED (\(order): \(violation))")
+        return false
+      }
+      for (ndx, actualTime) in ranInOrder.sorted(by: { $0.ndx < $1.ndx }) {
+        let target = targets[ndx]
+        // A job enqueued after its target is due once the executor has it, which
+        // is no later than when `enqueue` returns.
+        let deadline = max(target, returns[ndx]!)
 
         // Must not return before the requested time
         let minTime = target
 
         // Warn if we return more than 25% after the requested time
-        let warnTime = target.advanced(
+        let warnTime = deadline.advanced(
           by: Duration.milliseconds(delays[ndx] / 4) as! C.Duration
         )
 
         // Must not return more than 25% after the requested time
-        let maxTime = target.advanced(
+        let maxTime = deadline.advanced(
           by: Duration.milliseconds(
             max(
               delays[ndx] / 4,
