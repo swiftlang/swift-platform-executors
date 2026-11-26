@@ -25,6 +25,28 @@ import Darwin
 
 @Suite
 struct FileTests {
+  /// Runs the body with the bytes of an anonymous mapping, which read as zeros without committing their pages.
+  @available(anyAppleOS 27.0, *)
+  private static func withMmappedBytes<Return>(
+    byteCount: Int,
+    _ body: (RawSpan) async throws -> Return
+  ) async throws -> Return {
+    let mapping = unsafe mmap(nil, byteCount, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)
+    guard let mapping = unsafe mapping, unsafe mapping != MAP_FAILED else {
+      throw IOError(code: .platform(errno))
+    }
+    let result: Result<Return, any Error>
+    do {
+      result = .success(
+        try await body(unsafe RawSpan(_unsafeBytes: UnsafeRawBufferPointer(start: mapping, count: byteCount)))
+      )
+    } catch {
+      result = .failure(error)
+    }
+    unsafe _ = munmap(mapping, byteCount)
+    return try result.get()
+  }
+
   @available(anyAppleOS 27.0, *)
   private static func withTemporaryFile(
     ioBackend: PThreadIOBackend,
@@ -69,6 +91,45 @@ struct FileTests {
       // Reading at the end of the file reports the end.
       #expect(try await file.read(length: 3, at: 10).isEmpty)
       try await file.close()
+    }
+  }
+
+  /// Darwin rejects a read or write of more than 2 GB at once, so a larger buffer is filled in part.
+  @Test(arguments: PThreadIOBackend.tested)
+  @available(anyAppleOS 27.0, *)
+  func readsIntoABufferOfMoreThanTwoGigabytes(ioBackend: PThreadIOBackend) async throws {
+    try await Self.withTemporaryFile(ioBackend: ioBackend) { path in
+      let file = try await File.open(path: path)
+      try await file.write(from: Array("0123456789".utf8).span.bytes, at: 0)
+      // The read only touches the pages of the buffer that it fills, so the buffer costs almost no memory.
+      let contents: [UInt8]
+      do {
+        contents = try await file.read(length: 3 << 30, at: 0)
+      } catch {
+        try await file.close()
+        throw error
+      }
+      try await file.close()
+      #expect(contents == Array("0123456789".utf8))
+    }
+  }
+
+  /// Darwin rejects a write of more than 2 GB at once, so a larger buffer is written in part.
+  @Test(arguments: PThreadIOBackend.tested)
+  @available(anyAppleOS 27.0, *)
+  func writesABufferOfMoreThanTwoGigabytes(ioBackend: PThreadIOBackend) async throws {
+    // `/dev/null` takes any count without reading the bytes, so the write costs almost no memory and no disk.
+    try await Self.withMmappedBytes(byteCount: 3 << 30) { bytes in
+      try await Self.withTemporaryFile(ioBackend: ioBackend) { _ in
+        let file = try await File.Writable.open(path: "/dev/null", options: .modifyFile(createIfNecessary: false))
+        do {
+          try await file.write(from: bytes, at: 0)
+        } catch {
+          try await file.close()
+          throw error
+        }
+        try await file.close()
+      }
     }
   }
 
