@@ -105,8 +105,7 @@ public struct LeasedBuffer: ~Copyable, @unchecked Sendable {
     )
   }
 
-  /// Arbitrarily edit the storage underlying this buffer by invoking a
-  /// user-supplied closure with a mutable `OutputSpan` view over it.
+  /// Edits the buffer through an `OutputRawSpan` over its memory, whose initialized bytes are the buffer's contents.
   ///
   /// - Parameter body: The closure to invoke with the span.
   /// - Returns: Whatever is returned by `body`.
@@ -119,8 +118,7 @@ public struct LeasedBuffer: ~Copyable, @unchecked Sendable {
     return result
   }
 
-  /// Arbitrarily edit the storage underlying this buffer by invoking a
-  /// user-supplied closure with a mutable `OutputSpan` view over it.
+  /// Edits the buffer through an `OutputRawSpan` over its memory, whose initialized bytes are the buffer's contents.
   ///
   /// - Parameter body: The closure to invoke with the span.
   /// - Returns: Whatever is returned by `body`.

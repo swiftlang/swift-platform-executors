@@ -55,7 +55,7 @@ public struct File: ~Copyable, Sendable {
   /// - Parameters:
   ///   - buffer: The buffer to read into.
   ///   - offset: The offset in the file to read from.
-  /// - Returns: The number of bytes read. Zero indicates that the offset is at or behind the end of the file,
+  /// - Returns: The number of bytes read. Zero indicates that the offset is at or past the end of the file,
   ///   or that the buffer has no free capacity.
   @discardableResult
   public borrowing func read(into buffer: inout OutputRawSpan, at offset: Int64) async throws(IOError) -> Int {
@@ -66,7 +66,7 @@ public struct File: ~Copyable, Sendable {
   ///
   /// - Parameter offset: The offset in the file to read from.
   /// - Returns: The buffer with the bytes that were read, which the caller has to return. It holds no bytes if the
-  ///   offset is at or behind the end of the file.
+  ///   offset is at or past the end of the file.
   public borrowing func read(at offset: Int64) async throws(IOError) -> LeasedBuffer {
     try await self.core.read(at: offset)
   }
@@ -77,7 +77,7 @@ public struct File: ~Copyable, Sendable {
   /// - Parameters:
   ///   - offset: The offset in the file to read from.
   ///   - body: The closure to invoke with the bytes that were read. Its span is empty if the offset is at or
-  ///     behind the end of the file.
+  ///     past the end of the file.
   /// - Returns: Whatever is returned by `body`.
   public borrowing func read<Return: ~Copyable>(
     at offset: Int64,
@@ -178,7 +178,7 @@ extension File {
     /// - Parameters:
     ///   - buffer: The buffer to read into.
     ///   - offset: The offset in the file to read from.
-    /// - Returns: The number of bytes read. Zero indicates that the offset is at or behind the end of the file,
+    /// - Returns: The number of bytes read. Zero indicates that the offset is at or past the end of the file,
     ///   or that the buffer has no free capacity.
     @discardableResult
     public borrowing func read(into buffer: inout OutputRawSpan, at offset: Int64) async throws(IOError) -> Int {
@@ -189,7 +189,7 @@ extension File {
     ///
     /// - Parameter offset: The offset in the file to read from.
     /// - Returns: The buffer with the bytes that were read, which the caller has to return. It holds no bytes if the
-    ///   offset is at or behind the end of the file.
+    ///   offset is at or past the end of the file.
     public borrowing func read(at offset: Int64) async throws(IOError) -> LeasedBuffer {
       try await self.core.read(at: offset)
     }
@@ -200,7 +200,7 @@ extension File {
     /// - Parameters:
     ///   - offset: The offset in the file to read from.
     ///   - body: The closure to invoke with the bytes that were read. Its span is empty if the offset is at or
-    ///     behind the end of the file.
+    ///     past the end of the file.
     /// - Returns: Whatever is returned by `body`.
     public borrowing func read<Return: ~Copyable>(
       at offset: Int64,
