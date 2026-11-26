@@ -20,6 +20,7 @@ public struct IOError: Error, Hashable, Sendable {
   public struct Code: Hashable, Sendable {
     fileprivate enum Backing: Hashable, Sendable {
       case cancelled
+      case writeZero
       case platform(CInt)
     }
 
@@ -27,6 +28,12 @@ public struct IOError: Error, Hashable, Sendable {
 
     /// The operation was cancelled before it completed.
     public static var cancelled: Code { Code(backing: .cancelled) }
+
+    /// A write transferred no bytes of a buffer that isn't empty.
+    ///
+    /// The loops that write all bytes of a buffer rely on every write making progress, so a scheduler throws this
+    /// instead of returning zero.
+    public static var writeZero: Code { Code(backing: .writeZero) }
 
     /// The operation failed with the given platform specific error code.
     ///
@@ -39,7 +46,7 @@ public struct IOError: Error, Hashable, Sendable {
     /// The platform specific error code, if this code wraps one.
     public var platformCode: CInt? {
       switch self.backing {
-      case .cancelled: nil
+      case .cancelled, .writeZero: nil
       case .platform(let code): code
       }
     }

@@ -82,9 +82,10 @@ extension PThreadTaskExecutor: FileOperationScheduler {
     }
 
     let bytes = buffer.withUnsafeBytes { unsafe $0 }
-    return try await unsafe self.performBlocking(
+    let count = try await unsafe self.performBlocking(
       .writeFile(file: file.fileDescriptor, buffer: bytes, offset: offset)
     )
+    return try IOError.checkingWriteProgress(count, bufferCount: bytes.count)
   }
 
   // TODO: Implement the operations that lease buffers.

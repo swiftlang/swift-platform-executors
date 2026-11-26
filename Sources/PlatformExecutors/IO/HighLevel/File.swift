@@ -501,6 +501,7 @@ struct FileCore: ~Copyable, Sendable {
     var offset = offset
     while !remaining.isEmpty {
       let count = try await scheduler.write(file: file, from: remaining, at: offset)
+      assert(count > 0, "The scheduler wrote no byte of a buffer that isn't empty")
       remaining = remaining.extracting(droppingFirst: count)
       offset += Int64(count)
     }

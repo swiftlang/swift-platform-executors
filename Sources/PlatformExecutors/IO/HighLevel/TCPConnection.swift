@@ -172,6 +172,7 @@ public struct TCPConnection: ~Copyable, Sendable {
     var remaining = buffer
     while !remaining.isEmpty {
       let count = try await scheduler.write(connection: connection, from: remaining)
+      assert(count > 0, "The scheduler wrote no byte of a buffer that isn't empty")
       remaining = remaining.extracting(droppingFirst: count)
     }
   }
