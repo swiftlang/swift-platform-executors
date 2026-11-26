@@ -114,7 +114,7 @@ final class ConditionVariable<Value: ~Copyable>: @unchecked Sendable {
   /// Waits at most `timeout`; true when woken, false on the timeout.
   private func _wait(timeout: Duration) -> Bool {
     var deadline = Self.realtimeDeadline(after: timeout)
-    return pthread_cond_timedwait(condition, lock, &deadline) != ETIMEDOUT
+    return unsafe pthread_cond_timedwait(condition, lock, &deadline) != ETIMEDOUT
   }
 
   /// The absolute CLOCK_REALTIME time `timeout` from now, as
@@ -122,7 +122,7 @@ final class ConditionVariable<Value: ~Copyable>: @unchecked Sendable {
   /// too far for `time_t` saturates rather than wrapping.
   private static func realtimeDeadline(after timeout: Duration) -> timespec {
     var now = timespec()
-    if clock_gettime(CPlatformExecutors_CLOCK_REALTIME, &now) != 0 {
+    if unsafe clock_gettime(CPlatformExecutors_CLOCK_REALTIME, &now) != 0 {
       now = timespec()
     }
     let nanosecondsPerSecond: Int128 = 1_000_000_000
@@ -151,12 +151,12 @@ final class ConditionVariable<Value: ~Copyable>: @unchecked Sendable {
     defer {
       self._unlock()
     }
-    while !when(&state) {
+    while unsafe !when(&state) {
       if !self._wait(timeout: timeout) {
         break
       }
     }
-    return try block(&state)
+    return try unsafe block(&state)
   }
   #endif
 

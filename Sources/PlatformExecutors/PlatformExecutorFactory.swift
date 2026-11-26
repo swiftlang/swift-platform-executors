@@ -201,10 +201,10 @@ import WASILibc
 @_spi(ExperimentalCustomExecutors) public struct PlatformExecutorFactory: ExecutorFactory {
   @_spi(ExperimentalCustomExecutors) public static let mainExecutor: any MainExecutor = PThreadMainExecutor()
   public static let defaultExecutor: any TaskExecutor = {
-    let coreCountEnvironment = getenv("SWIFT_PLATFORM_DEFAULT_EXECUTOR_POOL_SIZE")
-      .map { String(cString: $0) }
+    let coreCountEnvironment = unsafe getenv("SWIFT_PLATFORM_DEFAULT_EXECUTOR_POOL_SIZE")
+      .map { unsafe String(cString: $0) }
     let coreCount = coreCountEnvironment.flatMap { Int($0) } ?? SystemCoreCount.coreCount
-    return PThreadTaskExecutor(
+    return unsafe PThreadTaskExecutor(
       name: "global",
       poolSize: coreCount,
       taskExecutor: nil
@@ -225,12 +225,12 @@ import WASILibc
   ) async throws(Failure) -> Return {
     do {
       let platformExecutor = PlatformTaskExecutor()
-      return try await PThreadTaskExecutor._withExecutor(
+      return try await unsafe PThreadTaskExecutor._withExecutor(
         name: name,
         poolSize: poolSize,
         taskExecutor: platformExecutor.asUnownedTaskExecutor()
       ) { executor in
-        platformExecutor.executor = executor
+        unsafe platformExecutor.executor = executor
         return try await body(platformExecutor)
       }
     } catch {
@@ -250,11 +250,11 @@ import WASILibc
   ) async throws(Failure) -> Return {
     do {
       let platformExecutor = PlatformSerialExecutor()
-      return try await PThreadSerialExecutor._withExecutor(
+      return try await unsafe PThreadSerialExecutor._withExecutor(
         name: name,
         serialExecutor: platformExecutor.asUnownedSerialExecutor()
       ) { executor in
-        platformExecutor.executor = executor
+        unsafe platformExecutor.executor = executor
         return try await body(platformExecutor)
       }
     } catch {
