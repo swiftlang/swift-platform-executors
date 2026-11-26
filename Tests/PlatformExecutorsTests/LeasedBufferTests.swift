@@ -50,6 +50,25 @@ struct LeasedBufferTests {
     buffer.return()
     #expect(released.withLock { $0 } == [16])
   }
+
+  @Test
+  @available(anyAppleOS 27.0, *)
+  func editingThatReplacesTheSpanTraps() async {
+    await #expect(processExitsWith: .failure) {
+      let other = UnsafeMutableRawBufferPointer.allocate(byteCount: 64, alignment: 16)
+      var buffer = unsafe LeasedBuffer(
+        adopting: .allocate(byteCount: 16, alignment: 16),
+        initializedCount: 0,
+        release: { memory in unsafe memory.deallocate() }
+      )
+      buffer.edit { span in
+        // A span over other memory would otherwise make the buffer count bytes that it doesn't hold.
+        let replacement = unsafe OutputRawSpan(buffer: other, initializedCount: 64)
+        span = unsafe _overrideLifetime(replacement, mutating: &span)
+      }
+      buffer.return()
+    }
+  }
 }
 #endif
 #endif
