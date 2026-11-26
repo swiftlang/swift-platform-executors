@@ -49,6 +49,11 @@ private func retryingFileSyscall<T: FixedWidthInteger>(_ body: () -> T) throws(I
 
 /// The blocking syscalls that back the file operations of readiness based mechanisms.
 enum FileSyscall {
+  /// The most bytes that one read or write of a file transfers.
+  ///
+  /// Darwin rejects a larger count with `EINVAL`, and Linux transfers at most a little less as well.
+  static var maximumTransferCount: Int { Int(Int32.max) }
+
   /// Returns the flags that open a file.
   ///
   /// - Parameter configuration: How to open the file.
@@ -172,7 +177,7 @@ enum FileSyscall {
       return 0
     }
     return try retryingFileSyscall {
-      unsafe pread(file, baseAddress, buffer.count, off_t(offset))
+      unsafe pread(file, baseAddress, min(buffer.count, Self.maximumTransferCount), off_t(offset))
     }
   }
 
@@ -192,7 +197,7 @@ enum FileSyscall {
       return 0
     }
     return try retryingFileSyscall {
-      unsafe pwrite(file, baseAddress, buffer.count, off_t(offset))
+      unsafe pwrite(file, baseAddress, min(buffer.count, Self.maximumTransferCount), off_t(offset))
     }
   }
 }
