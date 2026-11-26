@@ -21,6 +21,7 @@ import Musl
 #elseif canImport(Darwin)
 import Darwin
 #endif
+import CPlatformExecutors
 
 /// Runs the body with a message header that describes the buffer and names the storage for the address.
 ///
@@ -36,20 +37,19 @@ private nonisolated(nonsending) func withDatagramMessage<R, E: Error>(
   addressLength: socklen_t,
   _ body: nonisolated(nonsending) (UnsafeMutablePointer<msghdr>) async throws(E) -> R
 ) async throws(E) -> R {
-  var header = unsafe msghdr()
-  var vector = unsafe iovec()
-  unsafe vector.iov_base = buffer.baseAddress
-  unsafe vector.iov_len = buffer.count
+  var message = unsafe CPlatformExecutors_DatagramMessage()
   return try await unsafe withUnsafeMutablePointer(to: &address) { address async throws(E) -> R in
-    try await unsafe withUnsafeMutablePointer(to: &vector) { vector async throws(E) -> R in
+    try await unsafe withUnsafeMutablePointer(to: &message) { message async throws(E) -> R in
       // Some platforms reject a message that has a name of length zero so we use nil instead.
-      unsafe header.msg_name = addressLength == 0 ? nil : UnsafeMutableRawPointer(address)
-      unsafe header.msg_namelen = addressLength
-      unsafe header.msg_iov = vector
-      unsafe header.msg_iovlen = 1
-      return try await unsafe withUnsafeMutablePointer(to: &header) { header async throws(E) -> R in
-        try await unsafe body(header)
-      }
+      let header = unsafe CPlatformExecutors_datagram_message_init(
+        message,
+        buffer.baseAddress,
+        buffer.count,
+        true,
+        addressLength == 0 ? nil : UnsafeMutableRawPointer(address),
+        addressLength
+      )!
+      return try await unsafe body(header)
     }
   }
 }
