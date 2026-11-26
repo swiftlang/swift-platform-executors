@@ -101,6 +101,8 @@ public protocol UDPSocketOperationScheduler<UDPSocket>: OperationScheduler {
 
   /// Closes a socket.
   ///
+  /// The scheduler must close the handle even if the calling task is cancelled, and releases it even if closing throws.
+  ///
   /// - Parameter socket: The socket to close.
   func close(socket: consuming UDPSocket) async throws(IOError)
 

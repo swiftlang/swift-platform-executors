@@ -114,14 +114,16 @@ extension PThreadTaskExecutor: FileOperationScheduler {
         priority: priority,
         continuation: continuation
       )
-      return try await waiter.wait(
-        onCancel: { _ in queue.cancel(id) },
-        onPriorityEscalated: { _, newPriority in
-          // The handler also runs once when the wait starts, with the priority that the task has then.
-          guard newPriority > priority else { return }
-          queue.escalate(id, to: newPriority)
-        }
-      )
+      let escalate: @Sendable (TaskPriority, TaskPriority) -> Void = { _, newPriority in
+        // The handler also runs once when the wait starts, with the priority that the task has then.
+        guard newPriority > priority else { return }
+        queue.escalate(id, to: newPriority)
+      }
+      if unsafe operation.ignoresCancellation {
+        // The operation runs to completion, so it needs no cancellation handler.
+        return try await waiter.wait(onPriorityEscalated: escalate)
+      }
+      return try await waiter.wait(onCancel: { _ in queue.cancel(id) }, onPriorityEscalated: escalate)
     }
   }
 }

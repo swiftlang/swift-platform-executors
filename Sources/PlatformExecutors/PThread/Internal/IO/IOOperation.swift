@@ -87,6 +87,14 @@ enum IOOperation {
       return fileDescriptor
     }
   }
+
+  /// Whether the operation runs to completion even if the task that performs it is cancelled.
+  var ignoresCancellation: Bool {
+    if case .close = unsafe self {
+      return true
+    }
+    return false
+  }
 }
 #endif
 

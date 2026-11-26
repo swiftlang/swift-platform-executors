@@ -1084,14 +1084,16 @@ extension PThreadExecutor {
         // to cancel and no reason to install the handlers.
         return try await waiter.wait()
       }
-      return try await waiter.wait(
-        onCancel: { _ in self.cancel(id) },
-        onPriorityEscalated: { _, newPriority in
-          // The handler also runs once when the wait starts, with the priority that the task has then.
-          guard newPriority > priority else { return }
-          self.escalatePriority(of: id, to: newPriority)
-        }
-      )
+      let escalate: @Sendable (TaskPriority, TaskPriority) -> Void = { _, newPriority in
+        // The handler also runs once when the wait starts, with the priority that the task has then.
+        guard newPriority > priority else { return }
+        self.escalatePriority(of: id, to: newPriority)
+      }
+      if unsafe operation.ignoresCancellation {
+        // The operation runs to completion, so it needs no cancellation handler.
+        return try await waiter.wait(onPriorityEscalated: escalate)
+      }
+      return try await waiter.wait(onCancel: { _ in self.cancel(id) }, onPriorityEscalated: escalate)
     }
   }
 

@@ -109,9 +109,7 @@ public struct TCPListener: ~Copyable, Sendable {
     on scheduler: Scheduler
   ) async throws(IOError) {
     let listener = listener as! Scheduler.TCPListener
-    try await withTaskCancellationShield { () async throws(IOError) -> Void in
-      try await scheduler.close(listener: listener)
-    }
+    try await scheduler.close(listener: listener)
   }
 
   /// Returns the handle of the listener as the handle type of the given scheduler.

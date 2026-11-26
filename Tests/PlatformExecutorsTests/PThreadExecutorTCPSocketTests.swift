@@ -19,6 +19,31 @@ import Testing
 
 @Suite
 struct PThreadExecutorTCPSocketTests {
+  @Test(.timeLimit(.minutes(1)), arguments: PThreadIOBackend.tested)
+  @available(anyAppleOS 27.0, *)
+  func closingOnACancelledTaskClosesTheSocket(ioBackend: PThreadIOBackend) async throws {
+    try await PThreadExecutor.withExecutor(name: "TCPSocketTest", ioBackend: ioBackend) { executor in
+      let listener = try await executor.listen(
+        on: .v4(SocketAddress.V4(address: .loopback, port: 0)),
+        backlog: 1
+      )
+      let client = try await executor.connect(to: executor.localAddress(of: listener))
+      let server = try await executor.accept(listener: listener)
+      try await executor.close(listener: listener)
+
+      let closing = Task {
+        // The task is cancelled before it closes the socket, which still has to close it.
+        unsafe withUnsafeCurrentTask { unsafe $0?.cancel() }
+        try await executor.close(connection: client)
+      }
+      try await closing.value
+
+      // The peer only sees the end of the stream once the socket is closed.
+      #expect(try await executor.readUntilEndOfStream(from: server).isEmpty)
+      try await executor.close(connection: server)
+    }
+  }
+
   @Test(arguments: PThreadIOBackend.tested)
   @available(anyAppleOS 27.0, *)
   func listenBindsToAPortAndCloses(ioBackend: PThreadIOBackend) async throws {
