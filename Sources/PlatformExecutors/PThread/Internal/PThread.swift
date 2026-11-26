@@ -30,8 +30,8 @@ import CPlatformExecutors
 import WASILibc
 import wasi_pthread
 
-private let sys_pthread_getname_np = CPlatformExecutors_pthread_getname_np
-private let sys_pthread_setname_np = CPlatformExecutors_pthread_setname_np
+private let sys_pthread_getname_np = unsafe CPlatformExecutors_pthread_getname_np
+private let sys_pthread_setname_np = unsafe CPlatformExecutors_pthread_setname_np
 private typealias ThreadDestructor = @convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?
 #elseif os(Linux) || os(Android)
 import CPlatformExecutors
@@ -111,13 +111,13 @@ private func sysPthread_create(
   // wasi-libc's `pthread_t` is a pointer; the shim adds the explicit stack
   // (wasi-libc's default thread stack is small and wasm has no guard page).
   var handleWASI: pthread_t? = nil
-  let result = CPlatformExecutors_wasi_pthread_create(
+  let result = unsafe CPlatformExecutors_wasi_pthread_create(
     &handleWASI,
     destructor,
     args,
     stackSize.map(CPlatformExecutors_pthread_normalized_stack_size) ?? 0
   )
-  handle.pointee = handleWASI
+  unsafe handle.pointee = handleWASI
   return result
   #else
   #if canImport(Musl)
