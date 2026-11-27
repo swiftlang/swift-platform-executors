@@ -12,6 +12,8 @@
 
 #if ExperimentalIO
 #if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
+import _PlatformExecutorsCore
+
 #if canImport(Glibc)
 import Glibc
 #elseif canImport(Musl)
@@ -59,6 +61,7 @@ enum FileSyscall {
       case .read: O_RDONLY
       case .write: O_WRONLY
       case .readWrite: O_RDWR
+      @unknown default: fatalError("Unsupported access mode: \(configuration.accessMode)")
       }
     // Every file is closed on exec.
     flags |= O_CLOEXEC
@@ -68,6 +71,7 @@ enum FileSyscall {
     case .none: flags |= O_EXCL
     case .open: break
     case .truncate: flags |= O_TRUNC
+    @unknown default: fatalError("Unsupported existing file behavior: \(configuration.existingFile)")
     }
     return flags
   }

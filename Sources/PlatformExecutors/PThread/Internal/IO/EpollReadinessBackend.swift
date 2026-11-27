@@ -23,6 +23,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+import _PlatformExecutorsCore
+
 #if canImport(Glibc) || canImport(Musl) || canImport(Android)
 #if canImport(Glibc)
 import Glibc

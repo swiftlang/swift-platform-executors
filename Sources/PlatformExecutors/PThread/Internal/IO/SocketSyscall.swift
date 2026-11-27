@@ -12,6 +12,8 @@
 
 #if ExperimentalIO
 #if os(Linux) || os(Android) || os(FreeBSD) || canImport(Darwin)
+import _PlatformExecutorsCore
+
 #if canImport(Glibc)
 import Glibc
 import CPlatformExecutors
@@ -298,6 +300,7 @@ enum SocketSyscall {
       case .read: CInt(SHUT_RD)
       case .write: CInt(SHUT_WR)
       case .readWrite: CInt(SHUT_RDWR)
+      @unknown default: fatalError("Unsupported shutdown direction: \(direction)")
       }
 
     try retryingIOSyscall(blocking: false) {

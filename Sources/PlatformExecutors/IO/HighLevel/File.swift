@@ -11,6 +11,8 @@
 //===----------------------------------------------------------------------===//
 
 #if ExperimentalIO
+
+public import _PlatformExecutorsCore
 /// An open file that can be read from and written to.
 ///
 /// A file is opened with ``open(path:options:)``. If a file is only read from or only written to, open it

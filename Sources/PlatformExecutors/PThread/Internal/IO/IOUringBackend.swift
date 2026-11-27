@@ -11,6 +11,8 @@
 //===----------------------------------------------------------------------===//
 
 #if ExperimentalIOUring && canImport(Glibc)
+
+import _PlatformExecutorsCore
 import Glibc
 import CPlatformExecutors
 import SystemPackage
@@ -142,6 +144,7 @@ struct IOUringBackend: ~Copyable {
         case .read: .read
         case .write: .write
         case .readWrite: .readWrite
+        @unknown default: fatalError("Unsupported shutdown direction: \(direction)")
         }
       return .shutdown(SocketDescriptor(rawValue: socket), how, context: context)
     case .close(let socket):
