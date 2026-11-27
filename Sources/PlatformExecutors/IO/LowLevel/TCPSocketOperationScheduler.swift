@@ -12,7 +12,7 @@
 
 #if ExperimentalIO
 /// A scheduler that can perform TCP socket operations.
-@available(anyAppleOS 27.0, *)
+@available(SwiftPlatformExecutors 0.1.0, *)
 public protocol TCPSocketOperationScheduler<TCPListener, TCPConnection>: OperationScheduler {
   // TODO: Bikeshed the name of this protocol. `socket` might not universal
   // vocabulary across the platforms we support.
@@ -124,7 +124,7 @@ public protocol TCPSocketOperationScheduler<TCPListener, TCPConnection>: Operati
   func localAddress(of listener: borrowing TCPListener) throws(IOError) -> SocketAddress
 }
 
-@available(anyAppleOS 27.0, *)
+@available(SwiftPlatformExecutors 0.1.0, *)
 extension TCPSocketOperationScheduler {
   /// Reads once from a socket and hands the bytes that were read to the closure.
   ///

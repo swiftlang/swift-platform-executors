@@ -25,7 +25,7 @@ import Darwin
 
 @Suite
 struct FileTests {
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   private static func withTemporaryFile(
     ioBackend: PThreadIOBackend,
     poolSize: Int = 1,
@@ -43,7 +43,7 @@ struct FileTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func writeAndReadBack(ioBackend: PThreadIOBackend) async throws {
     try await Self.withTemporaryFile(ioBackend: ioBackend) { path in
       let payload = Array("Hello from the high level file".utf8)
@@ -56,7 +56,7 @@ struct FileTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func readsAndWritesAtOffsets(ioBackend: PThreadIOBackend) async throws {
     try await Self.withTemporaryFile(ioBackend: ioBackend) { path in
       let file = try await File.open(path: path)
@@ -73,7 +73,7 @@ struct FileTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func writesLargeBuffers(ioBackend: PThreadIOBackend) async throws {
     try await Self.withTemporaryFile(ioBackend: ioBackend) { path in
       let payload = (0..<(3 * 1024 * 1024 + 17)).map { UInt8(truncatingIfNeeded: $0 &* 31) }
@@ -86,7 +86,7 @@ struct FileTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func truncateDropsTheExistingContent(ioBackend: PThreadIOBackend) async throws {
     try await Self.withTemporaryFile(ioBackend: ioBackend) { path in
       let writable = try await File.Writable.open(path: path)
@@ -101,7 +101,7 @@ struct FileTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func openingAMissingFileFails(ioBackend: PThreadIOBackend) async throws {
     try await Self.withTemporaryFile(ioBackend: ioBackend) { path in
       let error = await #expect(throws: IOError.self) {
@@ -113,7 +113,7 @@ struct FileTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func exclusiveCreateFailsForExistingFiles(ioBackend: PThreadIOBackend) async throws {
     try await Self.withTemporaryFile(ioBackend: ioBackend) { path in
       let file = try await File.Writable.open(path: path)
@@ -128,7 +128,7 @@ struct FileTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func readableAndWritableFilesShareTheContent(ioBackend: PThreadIOBackend) async throws {
     try await Self.withTemporaryFile(ioBackend: ioBackend) { path in
       let writable = try await File.Writable.open(path: path)
@@ -142,7 +142,7 @@ struct FileTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func modifyFileKeepsTheContentAndCanCreate(ioBackend: PThreadIOBackend) async throws {
     try await Self.withTemporaryFile(ioBackend: ioBackend) { path in
       // The file doesn't exist, and is not created.
@@ -168,7 +168,7 @@ struct FileTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func newFileAppliesThePermissions(ioBackend: PThreadIOBackend) async throws {
     try await Self.withTemporaryFile(ioBackend: ioBackend) { path in
       let file = try await File.Writable.open(
@@ -187,7 +187,7 @@ struct FileTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func notFollowingSymbolicLinksFailsForALink(ioBackend: PThreadIOBackend) async throws {
     try await Self.withTemporaryFile(ioBackend: ioBackend) { path in
       let file = try await File.Writable.open(path: path)
@@ -209,7 +209,7 @@ struct FileTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested)
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func openOnACancelledTaskResumesWithCancelled(ioBackend: PThreadIOBackend) async throws {
     try await Self.withTemporaryFile(ioBackend: ioBackend) { path in
       try await withThrowingTaskGroup { group in
@@ -230,7 +230,7 @@ struct FileTests {
   ///
   /// The only thread of the blocking pool is held in an \`open\` of a FIFO that has no writer.
   @Test(arguments: PThreadIOBackend.tested.filter { $0.description != "ioUring" })
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func cancellingAQueuedOperationResumesWithCancelled(ioBackend: PThreadIOBackend) async throws {
     let fifo = "/tmp/platform-executors-file-test-fifo-\(UInt64.random(in: .min ... .max))"
     // TODO: Offer a mkfifo operation and use it here
@@ -293,7 +293,7 @@ struct FileTests {
   }
 
   @Test(arguments: PThreadIOBackend.tested, [1, 4])
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func manyFilesConcurrently(ioBackend: PThreadIOBackend, poolSize: Int) async throws {
     try await Self.withTemporaryFile(ioBackend: ioBackend, poolSize: poolSize) { path in
       try await withThrowingTaskGroup { group in
@@ -317,7 +317,7 @@ struct FileTests {
     .disabled("Leasing buffers is not implemented in the executors yet"),
     arguments: PThreadIOBackend.tested
   )
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func readAndWriteWithBuffersFromTheExecutor(ioBackend: PThreadIOBackend) async throws {
     try await Self.withTemporaryFile(ioBackend: ioBackend) { path in
       let writable = try await File.Writable.open(path: path, options: .newFile(replaceExisting: true))

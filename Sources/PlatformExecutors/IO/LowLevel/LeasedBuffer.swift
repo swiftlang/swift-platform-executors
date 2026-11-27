@@ -22,7 +22,7 @@
 // TODO: Evaluate whether a backend like DPDK fits.
 // TODO: Alternatively this could be modelled with custom allocators.
 @safe
-@available(anyAppleOS 27.0, *)
+@available(SwiftPlatformExecutors 0.1.0, *)
 public struct LeasedBuffer: ~Copyable, @unchecked Sendable {
   /// The memory of the buffer. This is the whole capacity, and the bytes that were transferred are its start.
   private let memory: UnsafeMutableRawBufferPointer

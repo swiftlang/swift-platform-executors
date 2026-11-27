@@ -21,7 +21,7 @@ import Testing
 @Suite
 struct LeasedBufferTests {
   @Test
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func aLeaseThatIsNotReturnedTraps() async {
     await #expect(processExitsWith: .failure) {
       _ = unsafe LeasedBuffer(
@@ -33,7 +33,7 @@ struct LeasedBufferTests {
   }
 
   @Test
-  @available(anyAppleOS 27.0, *)
+  @available(SwiftStdlib 6.5, *)
   func returningALeaseCallsTheReleaseClosureWithTheMemoryOnce() async {
     let released = Mutex<[Int]>([])
     let memory = UnsafeMutableRawBufferPointer.allocate(byteCount: 16, alignment: 16)

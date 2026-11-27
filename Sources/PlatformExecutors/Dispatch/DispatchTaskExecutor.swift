@@ -16,7 +16,7 @@ import Dispatch
 
 /// This wrapper primarly exists since we need to call the `runSynchronously`
 /// with the ``PlatformTaskExecutor`` for the tracking to work correctly.
-@available(macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999, *)
+@available(SwiftStdlib 6.5, *)
 @safe
 package final class DispatchTaskExecutor: TaskExecutor, @unchecked Sendable {
   private let queue: DispatchQueue

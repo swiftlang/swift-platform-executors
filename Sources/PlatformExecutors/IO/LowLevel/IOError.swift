@@ -15,6 +15,7 @@
 ///
 /// - Note: This is a placeholder for the portable error currency type and only carries the platform's
 /// error code right now.
+@available(SwiftPlatformExecutors 0.1.0, *)
 public struct IOError: Error, Hashable, Sendable {
   /// The code identifying why an operation failed.
   public struct Code: Hashable, Sendable {
