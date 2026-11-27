@@ -14,7 +14,7 @@
 @_spi(ExperimentalScheduling) @_spi(ConcurrencyExecutors) @_spi(ExperimentalCustomExecutors) import _Concurrency
 
 #if canImport(WinSDK)
-import WinSDK
+public import WinSDK
 #elseif BUILDING_DOCS
 // We define some types here for cases where we don't have the Windows SDK
 // (this is really to make documentation possible, as MSG is used in the
